@@ -100,6 +100,22 @@ The client only sees and can call the tools its approved scopes cover:
 | `workflows:execute` | `run_workflow`, `cancel_run` |
 | `vault:read` | `list_credentials`, `check_workflow_credentials` (with `workflows:read`) |
 | `vault:write` | `open_credential_form`, `save_credential`, `delete_credential` |
+| `apps:read` | Hosted app metadata, deployments, collections and audit history; bindings also require `workflows:read` |
+| `apps:write` | Create and change hosted apps, upload bundles, and edit draft collections; saving bindings also requires `workflows:read` |
+| `apps:publish` | Publish and unpublish hosted apps; archive and restore also require `apps:write` |
+
+Credential health reads require both `workflows:read` and `vault:read`.
+Validation requires `workflows:read` and `vault:write`; alert listing and
+acknowledgement require `vault:read` and `vault:write`, respectively.
+Evaluation requires both `workflows:execute` and `workflows:write`, because
+evaluator definitions can load Python entrypoints. Node execution requires
+`workflows:execute`. Webhook reads require `workflows:read`; webhook changes
+and forms require `workflows:write`. Candidate installation and updates require
+`workflows:write`, while catalog reads require `workflows:read`.
+
+Existing OAuth grants do not gain new scopes automatically. Reconnect and
+approve hosted-app access to use the hosted-app tools. Workspace roles still
+apply; a grant does not turn an editor into an administrator.
 
 The component catalog, workspace and server-info tools need no scope. Service
 tokens and Studio sessions are not narrowed by these scopes; the API routes the
@@ -153,7 +169,7 @@ optional `workspace` slug.
 | `list_workflow_versions` | — | Version metadata for a workflow. |
 | `download_workflow` | `workflow download` | Python source and runnable config of a version. |
 | `upload_workflow` | `workflow upload` | Ingest a script as a new version. It creates the workflow when given a new handle or a name, and re-syncs an existing cron schedule. |
-| `update_workflow` | `workflow update` | Change a workflow's name, handle or description. |
+| `update_workflow` | `workflow update` | Change name, handle, description, tags, draft access or ChatKit prompts/models. The two `clear_chatkit_*` flags remove stored overrides. |
 | `delete_workflow` | `workflow delete` | Archive a workflow. |
 | `publish_workflow` / `unpublish_workflow` | `workflow publish` / `unpublish` | Toggle public ChatKit access. |
 | `schedule_workflow` / `unschedule_workflow` | `workflow schedule` / `unschedule` | Enable or disable the cron trigger declared by the latest version. |
@@ -161,19 +177,36 @@ optional `workspace` slug.
 | `check_workflow_credentials` | — | Check that the credentials a workflow references exist. |
 | `list_workflow_listeners` | — | List listener subscriptions with live health. |
 | `pause_workflow_listener` / `resume_workflow_listener` | `workflow listeners pause` / `resume` | Control a listener subscription. |
+| `diff_workflow_versions` | — | Compare two stored versions. |
+| `get_workflow_listener_metrics` | — | Read aggregate health, stalled-listener alerts and dispatch failures. |
+| `get_webhook_config` / `configure_webhook` | — | Inspect redacted webhook configuration or update supplied nonsecret settings while retaining authentication. |
+| `open_webhook_form` | — | Let the user privately set webhook authentication and required header/query values. |
 
 ### Runs
 
 | Tool | Description |
 |------|-------------|
-| `run_workflow` | Queue a run (latest or a pinned version) and return it immediately. |
+| `run_workflow` | Queue a run (latest or a pinned version), optionally override `runnable_config` for that run, and return immediately. Stored version configuration is unchanged. |
 | `list_workflow_runs` | List the most recent runs of a workflow. |
 | `get_run` | Show a run's status, inputs, output and error. |
 | `get_run_trace` | Show node-level spans, timings and outputs. |
 | `cancel_run` | Cancel a pending or running run. |
+| `list_workflow_executions` | List recorded executions, including streaming and evaluation runs, without full step payloads. |
+| `get_execution_history` | Read recorded inputs, configuration and steps. `from_step` slices the history; it does not re-execute the workflow. |
+| `execute_node` | Execute an individual node with inputs and an optional workflow context. Integration nodes can have real external side effects. |
+| `evaluate_workflow` | Evaluate a stored version using a dataset, evaluator definitions and optional runtime configuration. |
+| `list_agentensor_checkpoints` / `get_agentensor_checkpoint` | Inspect saved optimization checkpoints. |
 
 `run_workflow` does not wait for the run to finish. Poll `get_run` until the
 status is terminal, then read `get_run_trace` for details.
+
+`evaluate_workflow` waits for completion within `timeout_seconds` (default 60,
+maximum 300). It returns an execution ID, status and result; full events are
+stored in execution history. A timeout cancels the evaluation and returns an
+error containing the execution ID. It is not a background queued run, and MCP
+hosts must allow enough time for the call. Custom evaluator entrypoints require
+client code uploads to be enabled. Evaluation uses the workspace's stored
+workflow source; clients do not supply a separate graph.
 
 ### Components
 
@@ -195,6 +228,44 @@ install when the server runs different plugins.
 | `list_my_workspaces` | List the caller's workspace memberships. |
 | `get_active_workspace` | Show which workspace calls act in, and the caller's role there. |
 | `get_server_info` | Show component versions and whether uploads are allowed. |
+| `get_workflow_credential_health` | Read cached credential validation results. |
+| `validate_workflow_credentials` | Validate credentials with their providers and update health. Requires the credential health service. |
+| `list_credential_alerts` / `acknowledge_credential_alert` | Inspect and acknowledge credential governance alerts. |
+| `get_server_readiness` | Check backend readiness, including Redis when using queued execution. |
+| `get_server_features` | Read features enabled for the selected workspace. |
+| `list_server_plugins` | Inspect installed plugin versions and workspace availability. |
+
+### Candidate workflows
+
+| Tool | Description |
+|------|-------------|
+| `list_candidates` | Read the official candidate catalog and release notes. |
+| `onboard_candidate` | Install a candidate into the selected workspace and optional team; re-onboarding appends a version. |
+| `update_candidate_workflow` | Upgrade an installed candidate from the server's catalog while preserving user configuration. |
+
+### Hosted web apps
+
+These tools use the Hosted Apps feature flag, workspace allowlist and role
+checks enforced by the REST API. Use `get_server_features` to check availability.
+
+| Tool | Description |
+|------|-------------|
+| `list_hosted_apps` / `get_hosted_app` | Read apps, current permission revisions and active deployments. Listing supports cursors. |
+| `create_hosted_app` / `update_hosted_app` | Create a draft with an alias, or update draft metadata. |
+| `archive_hosted_app` / `restore_hosted_app` | Disable or restore access while retaining the prior publication lifecycle. Restoring a published app can make it accessible again. |
+| `get_hosted_app_audit` | Read app mutation history. |
+| `list_hosted_app_bindings` / `save_hosted_app_binding` / `delete_hosted_app_binding` | Inspect, create, replace or remove draft workflow bindings. |
+| `list_hosted_app_collections` / `save_hosted_app_collection` / `delete_hosted_app_collection` | Manage app-data collection definitions and access rules. |
+| `list_hosted_app_deployments` | Read deployment validation status and errors. |
+| `upload_hosted_app_deployment` | Validate a base64-encoded static ZIP, capped at 10 MiB decoded. Requires `index.html` at the root. Does not publish it. |
+| `publish_hosted_app` / `unpublish_hosted_app` | Publish a validated deployment at an explicitly acknowledged permission revision, or withdraw it. |
+
+Before publishing, inspect the app, bindings and collections, then provide
+`review.acknowledged_permission_revision` from the reviewed app metadata. The
+backend rejects stale revisions. Bindings pin workflow versions and stored
+configuration. Uploads use the existing multipart API for filesystem/Postgres
+bundle storage; the production presigned-upload flow remains a backend
+limitation and is not bypassed by MCP.
 
 ### Interactive views (MCP Apps)
 
@@ -204,6 +275,7 @@ render these tools' results as embedded views:
 | Tool | View |
 |------|------|
 | `open_credential_form` | `ui://orcheo/credential-form`: a form where the user types the secret. |
+| `open_webhook_form` | `ui://orcheo/webhook-form`: webhook authentication and required header/query values, entered directly by the user. |
 | `show_workflow_diagram` | `ui://orcheo/workflow-diagram`: a version's graph rendered with Mermaid. In other hosts the model receives the Mermaid source instead. |
 
 **Credentials never pass through the model.** The agent only opens the form. The
@@ -214,6 +286,15 @@ is never shown to the model. The agent is only told that the credential was
 saved, so it can neither see a secret nor write one itself. Credentials cannot
 be created from hosts without MCP Apps support; use Studio or
 `orcheo credential create` instead.
+
+Webhook authentication follows the same pattern. `save_webhook_config` is
+app-only and requires a signed form token bound to the caller, workspace,
+workflow and webhook purpose. Credential and webhook tokens cannot be used
+interchangeably. Webhook reads and save results exclude secret values and
+required header/query values. API validation errors are sanitized before they
+reach the model. Non-App hosts can configure nonsecret webhook settings through
+`configure_webhook`; authentication fields require the form or another trusted
+administrative surface.
 
 The diagram view loads Mermaid from `cdn.jsdelivr.net`; it declares that origin
 in its content security policy. If the script cannot load, the view shows the

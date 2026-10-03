@@ -173,6 +173,15 @@ class InProcessApiClient:
             raise McpApiError(method, path, response.status_code, _decode(response))
         return _decode(response)
 
+    async def upload(self, path: str, *, bundle: bytes) -> Any:
+        """Upload a bounded hosted-app ZIP through the regular multipart route."""
+        response = await self._client.post(
+            path, files={"bundle": ("bundle.zip", bundle, "application/zip")}
+        )
+        if response.is_error:
+            raise McpApiError("POST", path, response.status_code, _decode(response))
+        return _decode(response)
+
 
 def _decode(response: httpx.Response) -> Any:
     if not response.content:

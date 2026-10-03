@@ -12,9 +12,13 @@ from fastmcp.server.http import StarletteWithLifespan
 from mcp.types import Icon
 from orcheo_backend.app.mcp_server.account_tools import register_account_tools
 from orcheo_backend.app.mcp_server.app_tools import register_app_tools
+from orcheo_backend.app.mcp_server.candidate_tools import register_candidate_tools
 from orcheo_backend.app.mcp_server.catalog_tools import register_catalog_tools
+from orcheo_backend.app.mcp_server.hosted_app_tools import register_hosted_app_tools
+from orcheo_backend.app.mcp_server.operations_tools import register_operations_tools
 from orcheo_backend.app.mcp_server.run_tools import register_run_tools
 from orcheo_backend.app.mcp_server.scopes import OAuthScopeMiddleware
+from orcheo_backend.app.mcp_server.webhook_tools import register_webhook_tools
 from orcheo_backend.app.mcp_server.workflow_tools import register_workflow_tools
 
 
@@ -34,7 +38,11 @@ Every tool acts as the authenticated caller; pass `workspace` to target a \
 workspace other than the default one. Secrets are referenced in workflows as \
 [[credential_name]]. To add or change one, call open_credential_form: the user \
 enters the secret in a form you never see. Never ask for secrets in chat. \
-show_workflow_diagram renders a workflow's graph."""
+show_workflow_diagram renders a workflow's graph. Use get_execution_history \
+for recorded steps, validate_workflow_credentials for provider checks, and \
+open_webhook_form for webhook secrets. Hosted app publication requires an \
+explicitly reviewed permission revision; inspect the app, bindings and \
+collections before calling publish_hosted_app."""
 
 
 def mcp_enabled() -> bool:
@@ -85,6 +93,10 @@ def build_mcp_server() -> FastMCP:
     register_catalog_tools(server)
     register_account_tools(server)
     register_app_tools(server)
+    register_operations_tools(server)
+    register_candidate_tools(server)
+    register_hosted_app_tools(server)
+    register_webhook_tools(server)
     return server
 
 

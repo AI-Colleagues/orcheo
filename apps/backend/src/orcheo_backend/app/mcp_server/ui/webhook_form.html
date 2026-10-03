@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orcheo webhook authentication</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted: #6b6b6b;
+        --border: #d9d9d9;
+        --field: #ffffff;
+        --accent: #3b5bdb;
+        --accent-fg: #ffffff;
+        --danger: #c92a2a;
+        --success: #2b8a3e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #1c1c1e;
+          --fg: #f1f1f1;
+          --muted: #a0a0a5;
+          --border: #3a3a3c;
+          --field: #2c2c2e;
+          --accent: #748ffc;
+          --accent-fg: #0b0b0b;
+          --danger: #ff8787;
+          --success: #8ce99a;
+        }
+      }
+      :root[data-theme="dark"] {
+        --bg: #1c1c1e;
+        --fg: #f1f1f1;
+        --muted: #a0a0a5;
+        --border: #3a3a3c;
+        --field: #2c2c2e;
+        --accent: #748ffc;
+        --accent-fg: #0b0b0b;
+        --danger: #ff8787;
+        --success: #8ce99a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      p.hint { color: var(--muted); margin: 0 0 16px; }
+      #form { display: grid; gap: 12px; max-width: 460px; }
+      label { display: grid; gap: 4px; font-weight: 500; }
+      label span.note { color: var(--muted); font-weight: 400; font-size: 12px; }
+      input, select, textarea {
+        width: 100%;
+        padding: 8px 10px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--field);
+        color: var(--fg);
+        font: inherit;
+      }
+      .secret { display: flex; gap: 6px; }
+      .secret input { flex: 1; }
+      button {
+        padding: 8px 14px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--field);
+        color: var(--fg);
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--accent-fg);
+        font-weight: 600;
+      }
+      button:disabled { opacity: 0.6; cursor: default; }
+      #status { min-height: 20px; margin: 0; }
+      #status.error { color: var(--danger); }
+      #status.success { color: var(--success); }
+    </style>
+  </head>
+  <body>
+    <h1>Webhook authentication</h1>
+    <p class="hint">Secrets are saved directly to your workflow. Existing values stay private.</p>
+    <div id="form">
+      <label>Authentication
+        <select id="mode">
+          <option value="keep">Keep current authentication</option>
+          <option value="shared">Shared secret</option>
+          <option value="hmac">HMAC signature</option>
+          <option value="both">Shared secret and HMAC</option>
+          <option value="none">Remove secret authentication</option>
+        </select>
+      </label>
+      <label>Shared secret header<input id="shared-header" placeholder="x-webhook-secret" /></label>
+      <label>Shared secret<input id="shared-secret" type="password" autocomplete="new-password" /></label>
+      <label>HMAC signature header<input id="hmac-header" placeholder="x-signature" /></label>
+      <label>HMAC secret<input id="hmac-secret" type="password" autocomplete="new-password" /></label>
+      <p class="hint">Leave secret fields empty to keep existing secrets. Selecting a different authentication method removes the unused method.</p>
+      <label>Required headers (JSON object)
+        <textarea id="headers" rows="2" placeholder='{"x-source": "my-service"}'></textarea>
+        <span class="note">Leave empty to keep existing values; enter {} to remove them.</span>
+      </label>
+      <label>Required query parameters (JSON object)
+        <textarea id="query" rows="2" placeholder='{"source": "my-service"}'></textarea>
+      </label>
+      <div><button class="primary" id="save" type="button" disabled>Save</button></div>
+      <p id="status" role="status"></p>
+    </div>
+    <script>/* ORCHEO_BRIDGE */</script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let token = null;
+      const status = (message, kind = "") => {
+        $("status").textContent = message;
+        $("status").className = kind;
+      };
+      orcheoBridge.on("ui/notifications/tool-result", (result) => {
+        token = (result._meta || {})["orcheo/formToken"];
+        const config = (result.structuredContent || {}).config || {};
+        $("shared-header").value = config.secret_header || "x-webhook-secret";
+        $("hmac-header").value = config.hmac_header || "x-signature";
+        $("shared-secret").value = "";
+        $("hmac-secret").value = "";
+        $("save").disabled = !token;
+        if (!token) status("Open a new webhook form to continue.", "error");
+      });
+      const applyMode = () => {
+        const mode = $("mode").value;
+        const shared = mode === "shared" || mode === "both";
+        const hmac = mode === "hmac" || mode === "both";
+        $("shared-header").disabled = $("shared-secret").disabled = !shared;
+        $("hmac-header").disabled = $("hmac-secret").disabled = !hmac;
+      };
+      $("mode").addEventListener("change", applyMode);
+      applyMode();
+      $("save").addEventListener("click", async () => {
+        if (!token) return;
+        $("save").disabled = true;
+        status("Saving…");
+        try {
+          const changes = {};
+          const mode = $("mode").value;
+          if (mode !== "keep") {
+            const shared = mode === "shared" || mode === "both";
+            const hmac = mode === "hmac" || mode === "both";
+            changes.secret_header = shared ? $("shared-header").value.trim() : null;
+            changes.hmac_header = hmac ? $("hmac-header").value.trim() : null;
+            if (!shared) changes.shared_secret = null;
+            else if ($("shared-secret").value) changes.shared_secret = $("shared-secret").value;
+            if (!hmac) changes.hmac_secret = null;
+            else if ($("hmac-secret").value) changes.hmac_secret = $("hmac-secret").value;
+          }
+          for (const [id, key] of [["headers", "required_headers"], ["query", "required_query_params"]]) {
+            if ($(id).value.trim()) {
+              let value;
+              try { value = JSON.parse($(id).value); }
+              catch { throw new Error("Required headers and query parameters must be JSON objects."); }
+              if (!value || Array.isArray(value) || typeof value !== "object") {
+                throw new Error("Required headers and query parameters must be JSON objects.");
+              }
+              changes[key] = value;
+            }
+          }
+          await orcheoBridge.callTool("save_webhook_config", { form_token: token, changes });
+          $("shared-secret").value = "";
+          $("hmac-secret").value = "";
+          $("headers").value = "";
+          $("query").value = "";
+          status("Webhook authentication saved.", "success");
+          await orcheoBridge.tellModel("The user saved the workflow webhook authentication settings.");
+        } catch (error) {
+          status(error.message, "error");
+        } finally { $("save").disabled = false; }
+      });
+      orcheoBridge.connect("orcheo-webhook-form");
+    </script>
+  </body>
+</html>

@@ -33,6 +33,8 @@ class CredentialForm:
     subject: str
     workspace: str | None
     credential_id: str | None
+    purpose: str = "credential"
+    workflow_id: str | None = None
 
 
 def _key() -> bytes:
@@ -60,6 +62,8 @@ def issue_form_token(form: CredentialForm, *, now: float | None = None) -> str:
         "sub": form.subject,
         "ws": form.workspace,
         "cid": form.credential_id,
+        "purpose": form.purpose,
+        "wid": form.workflow_id,
         "exp": int((now if now is not None else time.time()) + FORM_TOKEN_TTL_SECONDS),
     }
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
@@ -68,7 +72,11 @@ def issue_form_token(form: CredentialForm, *, now: float | None = None) -> str:
 
 
 def verify_form_token(
-    token: str, *, subject: str, now: float | None = None
+    token: str,
+    *,
+    subject: str,
+    now: float | None = None,
+    purpose: str = "credential",
 ) -> CredentialForm:
     """Return the form a token authorizes for ``subject``.
 
@@ -87,6 +95,8 @@ def verify_form_token(
             subject=payload["sub"],
             workspace=payload["ws"],
             credential_id=payload["cid"],
+            purpose=payload.get("purpose", "credential"),
+            workflow_id=payload.get("wid"),
         )
     except (ValueError, KeyError, TypeError) as exc:
         raise ToolError("This credential form is invalid. Open a new one.") from exc
@@ -94,6 +104,8 @@ def verify_form_token(
         raise ToolError("This credential form has expired. Open a new one.")
     if form.subject != subject:
         raise ToolError("This credential form was opened by a different user.")
+    if form.purpose != purpose:
+        raise ToolError("This form token cannot be used for this operation.")
     return form
 
 

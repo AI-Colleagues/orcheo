@@ -5,9 +5,9 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable, Mapping
-from typing import Any, cast
+from typing import Any, Protocol, cast
 from uuid import UUID
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocketDisconnect
 from langchain_core.runnables import RunnableConfig
 from opentelemetry.trace import Span, Tracer
 from orcheo.agentensor.evaluation import EvaluationRequest
@@ -49,6 +49,14 @@ from orcheo_backend.app.history import (
     RunHistoryStore,
 )
 from orcheo_backend.app.trace_utils import build_trace_update
+
+
+class JsonEventSink(Protocol):
+    """Accept execution events from either WebSocket or HTTP evaluation clients."""
+
+    async def send_json(self, data: Any, mode: str = "text") -> None:
+        """Receive one JSON execution event."""
+        ...
 
 
 logger = logging.getLogger(__name__)
@@ -130,7 +138,7 @@ def _json_safe_value(value: Any) -> Any:  # noqa: PLR0911
     return str(value)
 
 
-async def _safe_send_json(websocket: WebSocket, payload: Any) -> bool:
+async def _safe_send_json(websocket: JsonEventSink, payload: Any) -> bool:
     """Send JSON only while the websocket is open."""
     try:
         await websocket.send_json(payload)
@@ -147,7 +155,7 @@ async def _safe_send_json(websocket: WebSocket, payload: Any) -> bool:
 
 async def _emit_trace_update(
     history_store: RunHistoryStore,
-    websocket: WebSocket,
+    websocket: JsonEventSink,
     execution_id: str,
     *,
     step: RunHistoryStep | None = None,
@@ -174,7 +182,7 @@ async def _forward_node_step(
     *,
     history_store: RunHistoryStore,
     execution_id: str,
-    websocket: WebSocket | None,
+    websocket: JsonEventSink | None,
     tracer: Tracer,
 ) -> None:
     """Persist a step and optionally stream it to a connected client."""
@@ -199,7 +207,7 @@ async def _stream_workflow_updates(
     config: RunnableConfig,
     history_store: RunHistoryStore,
     execution_id: str,
-    websocket: WebSocket | None,
+    websocket: JsonEventSink | None,
     tracer: Tracer,
 ) -> Any:
     """Record workflow updates and optionally stream them to a client."""
@@ -259,7 +267,7 @@ async def _run_workflow_stream(
     config: RunnableConfig,
     history_store: RunHistoryStore,
     execution_id: str,
-    websocket: WebSocket | None,
+    websocket: JsonEventSink | None,
     tracer: Tracer,
     span: Span,
 ) -> Any:
@@ -409,7 +417,7 @@ async def _execute_trusted_workflow_in_worker(
     runtime_config: RunnableConfig,
     state_config: Mapping[str, Any],
     history_store: RunHistoryStore,
-    websocket: WebSocket,
+    websocket: JsonEventSink,
     execution_id: str,
     tracer: Tracer,
     span: Span,
@@ -543,7 +551,7 @@ async def execute_workflow(
     graph_config: dict[str, Any],
     inputs: dict[str, Any],
     execution_id: str,
-    websocket: WebSocket,
+    websocket: JsonEventSink,
     workspace_id: str | None = None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
     stored_runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
@@ -651,7 +659,7 @@ async def _run_evaluation_node(
     evaluation_request: EvaluationRequest,
     parsed_config: RunnableConfigModel,
     history_store: RunHistoryStore,
-    websocket: WebSocket,
+    websocket: JsonEventSink,
     execution_id: str,
     tracer: Tracer,
     resolver: CredentialResolver,
@@ -773,7 +781,7 @@ async def _run_training_node(
     training_request: TrainingRequest,
     parsed_config: RunnableConfigModel,
     history_store: RunHistoryStore,
-    websocket: WebSocket,
+    websocket: JsonEventSink,
     execution_id: str,
     tracer: Tracer,
     resolver: CredentialResolver,
@@ -894,7 +902,7 @@ async def execute_workflow_evaluation(
     graph_config: dict[str, Any],
     inputs: dict[str, Any],
     execution_id: str,
-    websocket: WebSocket,
+    websocket: JsonEventSink,
     evaluation: Mapping[str, Any] | EvaluationRequest | None,
     workspace_id: str | None = None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,
@@ -1014,7 +1022,7 @@ async def execute_workflow_training(
     graph_config: dict[str, Any],
     inputs: dict[str, Any],
     execution_id: str,
-    websocket: WebSocket,
+    websocket: JsonEventSink,
     training: Mapping[str, Any] | TrainingRequest | None,
     workspace_id: str | None = None,
     runnable_config: Mapping[str, Any] | RunnableConfigModel | None = None,

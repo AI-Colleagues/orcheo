@@ -244,11 +244,14 @@ async def test_every_tool_declares_its_oauth_scopes() -> None:
     tools = await build_mcp_server().list_tools()
     unscoped = {tool.name for tool in tools if not required_scopes(tool)}
 
-    # Only tools that touch no workspace data may skip a scope.
+    # Only catalog, workspace discovery and server capability tools may skip scopes.
     assert unscoped == {
         "describe_component",
         "get_active_workspace",
         "get_server_info",
+        "get_server_readiness",
+        "get_server_features",
+        "list_server_plugins",
         "list_components",
         "list_my_workspaces",
     }

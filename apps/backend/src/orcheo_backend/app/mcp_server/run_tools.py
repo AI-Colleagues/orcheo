@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 from fastmcp import FastMCP
 from pydantic import Field
+from orcheo.runtime.runnable_config import RunnableConfigModel
 from orcheo_backend.app.mcp_server._shared import (
     MCP_ACTOR,
     READ_ONLY,
@@ -31,6 +32,7 @@ def register_run_tools(server: FastMCP) -> None:
             Field(description="Input payload passed to the workflow run."),
         ] = None,
         version: VersionArg = None,
+        runnable_config: RunnableConfigModel | None = None,
         workspace: WorkspaceArg = None,
     ) -> dict[str, Any]:
         """Queue a workflow run and return it without waiting for completion.
@@ -41,6 +43,10 @@ def register_run_tools(server: FastMCP) -> None:
             # The dispatch endpoint takes a workflow UUID, not a handle.
             record = await api.get(f"/api/workflows/{workflow}")
             item: dict[str, Any] = {"input_payload": inputs or {}}
+            if runnable_config is not None:
+                item["runnable_config"] = runnable_config.model_dump(
+                    mode="json", exclude_unset=True
+                )
             if version is not None:
                 selected = await fetch_version(api, workflow, version)
                 item["workflow_version_id"] = selected["id"]

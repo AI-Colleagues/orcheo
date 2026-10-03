@@ -1,19 +1,112 @@
 """Agentensor checkpoint APIs."""
 
 from __future__ import annotations
-from fastapi import APIRouter, Query
+import asyncio
+from typing import Any
+from uuid import uuid4
+from fastapi import APIRouter, HTTPException, Query
 from orcheo.agentensor.checkpoints import AgentensorCheckpointNotFoundError
+from orcheo.graph.ingestion.sandbox import uploads_allowed
 from orcheo_backend.app.dependencies import (
     CheckpointStoreDep,
     RepositoryDep,
     resolve_workflow_ref_id,
 )
 from orcheo_backend.app.errors import raise_not_found
-from orcheo_backend.app.schemas.agentensor import AgentensorCheckpointResponse
+from orcheo_backend.app.repository import WorkflowVersionNotFoundError
+from orcheo_backend.app.schemas.agentensor import (
+    AgentensorCheckpointResponse,
+    WorkflowEvaluationRequest,
+    WorkflowEvaluationResponse,
+)
+from orcheo_backend.app.workflow_execution import execute_workflow_evaluation
 from orcheo_backend.app.workspace import WorkspaceContextDep
 
 
 router = APIRouter()
+
+
+class _EvaluationResult:
+    """Keep only the final result; the executor persists full event history."""
+
+    def __init__(self) -> None:
+        self.result: dict[str, Any] | None = None
+        self.status = "running"
+
+    async def send_json(self, data: Any, mode: str = "text") -> None:
+        if data.get("event") == "evaluation_result":
+            self.result = data.get("payload")
+        if "status" in data:
+            self.status = data["status"]
+
+
+@router.post(
+    "/workflows/{workflow_ref}/agentensor/evaluate",
+    response_model=WorkflowEvaluationResponse,
+)
+async def evaluate_workflow(
+    workflow_ref: str,
+    request: WorkflowEvaluationRequest,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
+) -> WorkflowEvaluationResponse:
+    """Evaluate a stored version and persist progress without a WebSocket client."""
+    tid = str(workspace.workspace_id)
+    workflow_id = await resolve_workflow_ref_id(
+        repository, workflow_ref, workspace_id=tid
+    )
+    if request.evaluation.evaluators and not uploads_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Custom evaluator entrypoints require "
+                "client code uploads to be enabled."
+            ),
+        )
+    try:
+        version = (
+            await repository.get_version_by_number(workflow_id, request.version)
+            if request.version is not None
+            else await repository.get_latest_version(workflow_id)
+        )
+    except WorkflowVersionNotFoundError as exc:
+        raise_not_found("Workflow version not found", exc)
+    execution_id = str(uuid4())
+    sink = _EvaluationResult()
+    try:
+        async with asyncio.timeout(request.timeout_seconds):
+            await execute_workflow_evaluation(
+                str(workflow_id),
+                version.graph,
+                request.inputs,
+                execution_id,
+                sink,
+                evaluation=request.evaluation,
+                workspace_id=tid,
+                runnable_config=request.runnable_config,
+                stored_runnable_config=version.runnable_config or {},
+            )
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "message": f"Evaluation {execution_id} timed out and was cancelled.",
+                "execution_id": execution_id,
+            },
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": f"Evaluation {execution_id} failed: {exc}",
+                "execution_id": execution_id,
+            },
+        ) from exc
+    return WorkflowEvaluationResponse(
+        execution_id=execution_id,
+        status=sink.status,
+        result=sink.result,
+    )
 
 
 @router.get(

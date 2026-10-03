@@ -246,6 +246,9 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "workflows:execute",
             "vault:read",
             "vault:write",
+            "apps:read",
+            "apps:write",
+            "apps:publish",
         ]
         verifier = _verifier()
         code = await oauth.authorize(client["client_id"], verifier)
@@ -595,3 +598,52 @@ async def test_consent_names_custom_redirect_schemes(
         )
 
         assert view.json()["redirect_host"] == "evilapp://claude.ai"
+
+
+@pytest.mark.asyncio()
+async def test_new_mcp_tools_require_their_approved_scopes(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """Workflow grants cannot mutate apps or use credential validation tools."""
+    async with oauth_session(oauth_env) as oauth:
+        read = (await oauth.grant(scope="workflows:read"))["access_token"]
+        app_read = (await oauth.grant(scope="apps:read"))["access_token"]
+        listed = await _mcp(oauth.client, "tools/list", {}, token=read)
+        names = {tool["name"] for tool in listed.json()["result"]["tools"]}
+        assert {
+            "get_execution_history",
+            "diff_workflow_versions",
+            "get_webhook_config",
+            "list_agentensor_checkpoints",
+        } <= names
+        assert names.isdisjoint(
+            {
+                "configure_webhook",
+                "validate_workflow_credentials",
+                "execute_node",
+                "evaluate_workflow",
+                "list_hosted_apps",
+                "publish_hosted_app",
+            }
+        )
+        listed_apps = await _mcp(oauth.client, "tools/list", {}, token=app_read)
+        app_names = {tool["name"] for tool in listed_apps.json()["result"]["tools"]}
+        assert {"list_hosted_apps", "list_hosted_app_deployments"} <= app_names
+        assert app_names.isdisjoint(
+            {"save_hosted_app_binding", "publish_hosted_app", "list_workflows"}
+        )
+        rejected = await _mcp(
+            oauth.client,
+            "tools/call",
+            {
+                "name": "publish_hosted_app",
+                "arguments": {
+                    "app_id": str(uuid4()),
+                    "deployment_id": str(uuid4()),
+                    "review": {"acknowledged_permission_revision": 1},
+                },
+            },
+            token=app_read,
+        )
+        assert rejected.json()["result"]["isError"]
+        assert "apps:publish" in rejected.text

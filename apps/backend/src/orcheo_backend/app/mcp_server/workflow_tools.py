@@ -7,6 +7,7 @@ from typing import Annotated, Any
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pydantic import Field
+from orcheo.models import WorkflowChatKitConfig, WorkflowDraftAccess
 from orcheo.models.workflow_refs import normalize_workflow_handle, workflow_ref_is_uuid
 from orcheo.triggers.cron import CronTriggerConfig
 from orcheo.triggers.cron_extraction import (
@@ -298,33 +299,7 @@ def _register_authoring_tools(server: FastMCP) -> None:
             result["cron_schedule"] = schedule
         return result
 
-    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
-    async def update_workflow(
-        workflow: WorkflowArg,
-        name: Annotated[str | None, Field(description="New name.")] = None,
-        handle: Annotated[str | None, Field(description="New handle.")] = None,
-        description: Annotated[
-            str | None, Field(description="New description.")
-        ] = None,
-        workspace: WorkspaceArg = None,
-    ) -> dict[str, Any]:
-        """Rename a workflow or change its handle or description."""
-        changes = {
-            key: value
-            for key, value in (
-                ("name", name),
-                ("handle", handle),
-                ("description", description),
-            )
-            if value is not None
-        }
-        if not changes:
-            raise ToolError("Provide at least one of name, handle or description.")
-        async with api_client(workspace) as api:
-            return await api.put(
-                f"/api/workflows/{workflow}",
-                json_body={**changes, "actor": MCP_ACTOR},
-            )
+    _register_update_tool(server)
 
     @server.tool(annotations=DESTRUCTIVE, tags=requires("workflows:write"))
     async def delete_workflow(
@@ -335,6 +310,53 @@ def _register_authoring_tools(server: FastMCP) -> None:
         async with api_client(workspace) as api:
             return await api.delete(
                 f"/api/workflows/{workflow}", params={"actor": MCP_ACTOR}
+            )
+
+
+def _register_update_tool(server: FastMCP) -> None:
+    @server.tool(annotations=IDEMPOTENT_WRITE, tags=requires("workflows:write"))
+    async def update_workflow(
+        workflow: WorkflowArg,
+        name: Annotated[str | None, Field(description="New name.")] = None,
+        handle: Annotated[str | None, Field(description="New handle.")] = None,
+        description: Annotated[
+            str | None, Field(description="New description.")
+        ] = None,
+        tags: list[str] | None = None,
+        draft_access: WorkflowDraftAccess | None = None,
+        chatkit: WorkflowChatKitConfig | None = None,
+        clear_chatkit_start_screen_prompts: bool = False,
+        clear_chatkit_supported_models: bool = False,
+        workspace: WorkspaceArg = None,
+    ) -> dict[str, Any]:
+        """Update workflow metadata, draft access and ChatKit presentation."""
+        changes: dict[str, Any] = {
+            key: value
+            for key, value in (
+                ("name", name),
+                ("handle", handle),
+                ("description", description),
+                ("tags", tags),
+                ("draft_access", draft_access),
+                (
+                    "chatkit",
+                    chatkit.model_dump(mode="json", exclude_unset=True)
+                    if chatkit is not None
+                    else None,
+                ),
+            )
+            if value is not None
+        }
+        if clear_chatkit_start_screen_prompts:
+            changes["clear_chatkit_start_screen_prompts"] = True
+        if clear_chatkit_supported_models:
+            changes["clear_chatkit_supported_models"] = True
+        if not changes:
+            raise ToolError("Provide at least one workflow field to update.")
+        async with api_client(workspace) as api:
+            return await api.put(
+                f"/api/workflows/{workflow}",
+                json_body={**changes, "actor": MCP_ACTOR},
             )
 
 

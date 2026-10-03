@@ -34,6 +34,9 @@ DEFAULT_USER_SCOPES: tuple[str, ...] = (
     "workflows:execute",
     "vault:read",
     "vault:write",
+    "apps:read",
+    "apps:write",
+    "apps:publish",
 )
 
 
