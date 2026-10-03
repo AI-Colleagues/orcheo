@@ -3,6 +3,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -81,7 +82,17 @@ class ListenerSupervisor:
         lease_seconds: int = 60,
         reconcile_interval_seconds: float = 5.0,
     ) -> None:
-        """Initialize a supervisor for a single worker runtime."""
+        """Initialize a runtime that polls before its half-lease renewal window."""
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+        if not (
+            math.isfinite(reconcile_interval_seconds)
+            and 0 < reconcile_interval_seconds < lease_seconds / 2
+        ):
+            raise ValueError(
+                "reconcile_interval_seconds must be positive, finite, and less "
+                "than half of lease_seconds"
+            )
         self._repository = repository
         self._runtime_id = runtime_id
         self._adapter_factory = adapter_factory

@@ -208,7 +208,20 @@ and publishes their runs to Celery. Schedule checks therefore do not wait for
 workflow execution slots. The lean worker ignores queued Celery cron-dispatch
 tasks left over from earlier deployments (`ORCHEO_CRON_DISPATCH_OWNER=scheduler`).
 Keep exactly one scheduler and leave
-`ORCHEO_INPROCESS_CRON=false` on the backend.
+`ORCHEO_INPROCESS_CRON=false` on every backend process. Cron dispatch uses
+process-local locking; the repository does not deduplicate an occurrence
+dispatched concurrently by separate processes. Do not scale `celery-beat`
+above one replica or run another scheduler against the same database.
+
+Outside the lean Compose stack, migrating from Celery Beat to
+`python -m orcheo_backend.worker.cron_scheduler` requires stopping the old
+Beat process, disabling in-process cron on every backend, and setting
+`ORCHEO_CRON_DISPATCH_OWNER=scheduler` on **every Celery worker** sharing the
+database and queue. Restart those workers before starting the standalone
+scheduler so already queued Beat dispatch tasks are ignored. The standalone
+scheduler always publishes runs to Celery. Deployments retaining Celery Beat
+should keep the default `ORCHEO_CRON_DISPATCH_OWNER=celery` and run no standalone
+scheduler.
 
 The backend serves precompressed Studio assets prepared after runtime settings
 are substituted. Asset responses require revalidation because those substitutions

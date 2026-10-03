@@ -1,4 +1,7 @@
-"""Compatibility imports for the public HTTPS proxy."""
+"""Compatibility imports for the public HTTPS proxy.
+
+Keep the private helper aliases for existing imports and test integrations.
+"""
 
 from orcheo.security.https_proxy import (
     PublicHttpsProxy,

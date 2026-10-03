@@ -51,6 +51,10 @@ async def test_studio_negotiates_gzip_and_revalidates_runtime_assets(
         }
         assert response.headers["Vary"] == "Accept-Encoding"
         assert "must-revalidate" in response.headers["Cache-Control"]
+        expected_size = (
+            compressed_path.stat().st_size if compressed else asset.stat().st_size
+        )
+        assert int(response.headers["Content-Length"]) == expected_size
         cached = await client.get(
             "/app-hash.js",
             headers={**headers, "If-None-Match": response.headers["ETag"]},
@@ -73,3 +77,149 @@ async def test_studio_compression_preserves_spa_fallback_and_api_404(
     ) as client:
         assert (await client.get("/workspace/workflow")).text == "<html>Studio</html>"
         assert (await client.get("/api/missing")).status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/", "/index.html", "/workspace/workflow"])
+@pytest.mark.asyncio
+async def test_studio_compresses_index_and_spa_routes(
+    tmp_path: Path, path: str
+) -> None:
+    """Root and SPA routes negotiate the same compressed index representation."""
+    content = "<html>" + "Studio " * 200 + "</html>"
+    (tmp_path / "index.html").write_text(content)
+    compress_assets(tmp_path)
+    app = _StudioStaticFiles(directory=tmp_path, html=True)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://studio"
+    ) as client:
+        response = await client.get(path, headers={"Accept-Encoding": "gzip"})
+        assert response.status_code == 200
+        assert response.text == content
+        assert response.headers["Content-Encoding"] == "gzip"
+        assert response.headers["Content-Type"] == "text/html"
+        cached = await client.get(
+            path,
+            headers={
+                "Accept-Encoding": "gzip",
+                "If-None-Match": response.headers["ETag"],
+            },
+        )
+        assert cached.status_code == 304
+
+
+@pytest.mark.asyncio
+async def test_studio_gzip_uses_compressed_body_size_and_validator(
+    tmp_path: Path,
+) -> None:
+    """GET and HEAD describe the compressed file, with an encoding-specific ETag."""
+    content = "const domain = 'configured.example';\n" * 100
+    (tmp_path / "app.js").write_text(content)
+    compress_assets(tmp_path)
+    compressed = (tmp_path / "app.js.gz").read_bytes()
+    app = _StudioStaticFiles(directory=tmp_path, html=True)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://studio"
+    ) as client:
+        async with client.stream(
+            "GET", "/app.js", headers={"Accept-Encoding": "gzip"}
+        ) as response:
+            body = b"".join([chunk async for chunk in response.aiter_raw()])
+            compressed_etag = response.headers["ETag"]
+            assert body == compressed
+            assert int(response.headers["Content-Length"]) == len(compressed)
+        head = await client.head("/app.js", headers={"Accept-Encoding": "gzip"})
+        assert head.content == b""
+        assert head.headers["ETag"] == compressed_etag
+        assert int(head.headers["Content-Length"]) == len(compressed)
+        identity = await client.get(
+            "/app.js",
+            headers={"Accept-Encoding": "identity", "If-None-Match": compressed_etag},
+        )
+        assert identity.status_code == 200
+        assert identity.text == content
+        assert identity.headers["ETag"] != compressed_etag
+
+
+@pytest.mark.parametrize(
+    ("range_header", "status"),
+    [
+        ("bytes=0-9", 206),
+        ("bytes=0-2,20-22", 206),
+        ("bytes=10000-", 416),
+        ("bytes=invalid", 400),
+    ],
+)
+@pytest.mark.asyncio
+async def test_studio_ranges_use_identity_encoding(
+    tmp_path: Path, range_header: str, status: int
+) -> None:
+    """Single, multipart and invalid ranges never label plain bodies as gzip."""
+    content = "const domain = 'configured.example';\n" * 100
+    (tmp_path / "app.js").write_text(content)
+    compress_assets(tmp_path)
+    app = _StudioStaticFiles(directory=tmp_path, html=True)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://studio"
+    ) as client:
+        response = await client.get(
+            "/app.js", headers={"Accept-Encoding": "gzip", "Range": range_header}
+        )
+        assert response.status_code == status
+        assert "Content-Encoding" not in response.headers
+        assert int(response.headers["Content-Length"]) == len(response.content)
+        if range_header == "bytes=0-9":
+            assert response.text == content[:10]
+            assert response.headers["Content-Range"] == f"bytes 0-9/{len(content)}"
+        elif range_header == "bytes=0-2,20-22":
+            assert response.headers["Content-Type"].startswith("multipart/byteranges;")
+            assert f"Content-Range: bytes 0-2/{len(content)}" in response.text
+            assert f"Content-Range: bytes 20-22/{len(content)}" in response.text
+        elif status == 416:
+            assert response.headers["Content-Range"] == f"bytes */{len(content)}"
+
+
+@pytest.mark.asyncio
+async def test_studio_if_range_uses_selected_representation_validator(
+    tmp_path: Path,
+) -> None:
+    """A gzip validator cannot authorize a partial response of identity bytes."""
+    content = "const domain = 'configured.example';\n" * 100
+    (tmp_path / "app.js").write_text(content)
+    compress_assets(tmp_path)
+    app = _StudioStaticFiles(directory=tmp_path, html=True)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://studio"
+    ) as client:
+        for encoding in ("gzip", "identity"):
+            original = await client.get(
+                "/app.js", headers={"Accept-Encoding": encoding}
+            )
+            response = await client.get(
+                "/app.js",
+                headers={
+                    "Accept-Encoding": "gzip",
+                    "Range": "bytes=0-9",
+                    "If-Range": original.headers["ETag"],
+                },
+            )
+            assert "Content-Encoding" not in response.headers
+            assert response.status_code == (200 if encoding == "gzip" else 206)
+            assert response.text == (content if encoding == "gzip" else content[:10])
+
+
+@pytest.mark.asyncio
+async def test_studio_custom_404_is_not_labeled_gzip(tmp_path: Path) -> None:
+    """A missing gzip sidecar does not turn the HTML error page into gzip bytes."""
+    (tmp_path / "app.js").write_text("const studio = true;")
+    (tmp_path / "404.html").write_text("<html>Not found</html>")
+    app = _StudioStaticFiles(directory=tmp_path, html=True)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://studio"
+    ) as client:
+        response = await client.get("/app.js", headers={"Accept-Encoding": "gzip"})
+        assert response.status_code == 200
+        assert response.text == "const studio = true;"
+        missing = await client.get("/api/missing", headers={"Accept-Encoding": "gzip"})
+        assert missing.status_code == 404
+        assert missing.text == "<html>Not found</html>"
+        assert "Content-Encoding" not in missing.headers

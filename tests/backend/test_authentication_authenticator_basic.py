@@ -129,7 +129,7 @@ async def test_dotted_bootstrap_token_still_authenticates(
     monkeypatch.setenv("ORCHEO_AUTH_JWT_SECRET", "test-key-for-jwt-fast-path-12345678")
     monkeypatch.setenv("ORCHEO_AUTH_BOOTSTRAP_SERVICE_TOKEN", "opaque.bootstrap.token")
     repository = AsyncMock()
-    repository.list_active.return_value = []
+    repository.find_by_hash.return_value = None
     authenticator = Authenticator(
         load_auth_settings(refresh=True), ServiceTokenManager(repository)
     )

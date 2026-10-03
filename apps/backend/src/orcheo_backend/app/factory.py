@@ -168,30 +168,38 @@ class _StudioStaticFiles(StaticFiles):
     """Serve a Vite SPA bundle and fall back to index.html for app routes."""
 
     async def get_response(self, path: str, scope: Scope) -> Response:
-        if _accepts_gzip(scope):
-            try:
-                response = await super().get_response(path + ".gz", scope)
-            except StarletteHTTPException as exc:
-                if exc.status_code != 404:
-                    raise
-            else:
-                response.headers["Content-Encoding"] = "gzip"
-                response.headers["Content-Type"] = (
-                    mimetypes.guess_type(path)[0] or "application/octet-stream"
-                )
-                response.headers["Vary"] = "Accept-Encoding"
-                response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
-                return response
         try:
-            response = await super().get_response(path, scope)
+            response = await self._get_asset_response(path, scope)
         except StarletteHTTPException as exc:
             if exc.status_code != 404 or _is_reserved_backend_path(path):
                 raise
-            response = await super().get_response("index.html", scope)
+            response = await self._get_asset_response("index.html", scope)
         # Runtime substitutions can change JS content while retaining Vite names.
         response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
         response.headers["Vary"] = "Accept-Encoding"
         return response
+
+    async def _get_asset_response(self, path: str, scope: Scope) -> Response:
+        """Negotiate an asset, including the index selected for an SPA route."""
+        # FileResponse's multipart ranges contain uncompressed MIME boundaries.
+        # Serve identity for ranges so Content-Encoding describes the whole body.
+        if "range" not in Headers(scope=scope) and _accepts_gzip(scope):
+            asset_path = "index.html" if path == "." else path
+            try:
+                response = await super().get_response(asset_path + ".gz", scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+            else:
+                # HTML mode can return an uncompressed custom 404 response.
+                if response.status_code in {200, 304}:
+                    response.headers["Content-Encoding"] = "gzip"
+                    response.headers["Content-Type"] = (
+                        mimetypes.guess_type(asset_path)[0]
+                        or "application/octet-stream"
+                    )
+                    return response
+        return await super().get_response(path, scope)
 
 
 @asynccontextmanager

@@ -10,6 +10,9 @@ from orcheo_backend.app.dependencies import get_repository
 
 async def run_scheduler(stop_event: asyncio.Event | None = None) -> None:
     """Run one scheduler until shutdown, publishing executions to Celery."""
+    # Dispatch reads this flag at call time. Enforce it for direct callers too,
+    # even if backend modules were imported with in-process execution enabled.
+    os.environ["ORCHEO_INPROCESS_EXECUTION"] = "false"
     stop = stop_event or asyncio.Event()
     loop = asyncio.get_running_loop()
     signals = (signal.SIGINT, signal.SIGTERM) if stop_event is None else ()
@@ -26,5 +29,4 @@ async def run_scheduler(stop_event: asyncio.Event | None = None) -> None:
 
 
 if __name__ == "__main__":
-    os.environ["ORCHEO_INPROCESS_EXECUTION"] = "false"
     asyncio.run(run_scheduler())

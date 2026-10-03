@@ -4,7 +4,12 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 import pytest
-from orcheo_backend.app.authentication import ServiceTokenManager, ServiceTokenRecord
+from orcheo_backend.app.authentication import (
+    Authenticator,
+    ServiceTokenManager,
+    ServiceTokenRecord,
+    load_auth_settings,
+)
 from orcheo_backend.app.service_token_repository import InMemoryServiceTokenRepository
 from tests.backend.authentication_test_utils import reset_auth_state
 
@@ -22,12 +27,17 @@ class _CountingServiceTokenRepository(InMemoryServiceTokenRepository):
     def __init__(self) -> None:
         super().__init__()
         self.list_active_calls = 0
+        self.find_by_hash_calls = 0
 
     async def list_active(
         self, *, now: datetime | None = None
     ) -> list[ServiceTokenRecord]:
         self.list_active_calls += 1
         return await super().list_active(now=now)
+
+    async def find_by_hash(self, secret_hash: str) -> ServiceTokenRecord | None:
+        self.find_by_hash_calls += 1
+        return await super().find_by_hash(secret_hash)
 
 
 @pytest.mark.asyncio
@@ -73,3 +83,36 @@ async def test_empty_token_cache_is_shared_until_expiry() -> None:
     now += timedelta(seconds=31)
     assert await manager.all() == ()
     assert repository.list_active_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_authenticate_token_minted_elsewhere_with_cached_empty_list() -> None:
+    """A worker accepts new tokens immediately despite its cached empty list."""
+    now = datetime.now(tz=UTC)
+    repository = _CountingServiceTokenRepository()
+    receiving_manager = ServiceTokenManager(repository, clock=lambda: now)
+    issuing_manager = ServiceTokenManager(repository, clock=lambda: now)
+    authenticator = Authenticator(load_auth_settings(), receiving_manager)
+
+    assert await receiving_manager.all() == ()
+    token, record = await issuing_manager.mint(scopes=["read:workflows"])
+
+    context = await authenticator.authenticate(token)
+
+    assert context.token_id == record.identifier
+    assert context.scopes == frozenset({"read:workflows"})
+    assert repository.list_active_calls == 1
+    assert repository.find_by_hash_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_service_authentication_skips_active_token_listing() -> None:
+    """Authenticating an opaque token needs only an indexed token lookup."""
+    repository = _CountingServiceTokenRepository()
+    manager = ServiceTokenManager(repository)
+    token, record = await manager.mint()
+    authenticator = Authenticator(load_auth_settings(), manager)
+
+    assert (await authenticator.authenticate(token)).token_id == record.identifier
+    assert repository.list_active_calls == 0
+    assert repository.find_by_hash_calls == 1

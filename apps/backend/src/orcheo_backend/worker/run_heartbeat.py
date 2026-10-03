@@ -96,12 +96,12 @@ def _renew_on_connection(
     """Update only the running row still held by this owner."""
     cursor = conn.execute(
         """
-            UPDATE workflow_runs
-               SET worker_heartbeat_at = clock_timestamp(),
-                   worker_lease_expires_at = clock_timestamp() + %s
-             WHERE id = %s AND status = 'running' AND worker_owner_token = %s
-         RETURNING id
-            """,
+        UPDATE workflow_runs
+           SET worker_heartbeat_at = clock_timestamp(),
+               worker_lease_expires_at = clock_timestamp() + %s
+         WHERE id = %s AND status = 'running' AND worker_owner_token = %s
+     RETURNING id
+        """,
         (WORKER_LEASE_DURATION, str(run_id), owner_token),
     )
     return cursor.fetchone() is not None
