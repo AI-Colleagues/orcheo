@@ -248,7 +248,6 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "vault:write",
             "apps:read",
             "apps:write",
-            "apps:publish",
             "workspaces:read",
             "workspaces:write",
             "admin:tokens:read",
@@ -791,3 +790,46 @@ async def test_service_token_form_binds_oauth_client_and_limits_minted_scopes(
             headers={"Authorization": f"Bearer {access}"},
         )
         assert direct.status_code == 403
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("explicit_publish", [False, True])
+async def test_publication_requires_explicit_client_scope(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+    explicit_publish: bool,
+) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
+
+        assert "apps:publish" in DEFAULT_USER_SCOPES
+        metadata = (
+            await oauth.client.get("/.well-known/oauth-authorization-server/api/oauth")
+        ).json()
+        assert "apps:publish" in metadata["scopes_supported"]
+        registration = {"scope": "apps:read apps:publish"} if explicit_publish else {}
+        client = await oauth.register(**registration)
+        verifier = _verifier()
+        started = await oauth.start(client["client_id"], verifier)
+        assert started.status_code == 302
+        request_id = parse_qs(urlparse(started.headers["location"]).query)["request"][0]
+        consent = await oauth.client.get(
+            f"/api/oauth/requests/{request_id}",
+            headers={"Authorization": f"Bearer {oauth.studio_token()}"},
+        )
+        assert ("apps:publish" in consent.json()["scopes"]) is explicit_publish
+        redirect = await oauth.consent(started.headers["location"])
+        code = parse_qs(urlparse(redirect).query)["code"][0]
+        issued = await oauth.token(
+            grant_type="authorization_code",
+            code=code,
+            redirect_uri=REDIRECT_URI,
+            client_id=client["client_id"],
+            code_verifier=verifier,
+        )
+        assert issued.status_code == 200, issued.text
+        assert ("apps:publish" in issued.json()["scope"].split()) is explicit_publish
+        result = await _mcp(
+            oauth.client, "tools/list", {}, issued.json()["access_token"]
+        )
+        names = {tool["name"] for tool in result.json()["result"]["tools"]}
+        assert ("publish_hosted_app" in names) is explicit_publish

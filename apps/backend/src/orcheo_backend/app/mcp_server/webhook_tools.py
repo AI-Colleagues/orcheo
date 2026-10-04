@@ -6,7 +6,7 @@ from fastmcp import FastMCP
 from fastmcp.apps import AppConfig
 from fastmcp.exceptions import ToolError
 from fastmcp.tools import ToolResult
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from orcheo.triggers.webhook import RateLimitConfig
 from orcheo_backend.app.mcp_server._shared import (
     IDEMPOTENT_WRITE,
@@ -39,6 +39,18 @@ class WebhookSettings(BaseModel):
     hmac_algorithm: str = "sha256"
     hmac_timestamp_header: str | None = None
     hmac_tolerance_seconds: int = Field(default=300, ge=0)
+
+
+class WebhookAuthenticationChanges(BaseModel):
+    """Only authentication fields accepted by the private webhook form."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    secret_header: str | None = None
+    shared_secret: str | None = None
+    hmac_header: str | None = None
+    hmac_secret: str | None = None
+    required_headers: dict[str, str] = Field(default_factory=dict)
+    required_query_params: dict[str, str] = Field(default_factory=dict)
 
 
 def _redact(config: dict[str, Any]) -> dict[str, Any]:
@@ -162,5 +174,17 @@ def register_webhook_tools(server: FastMCP) -> None:
         )
         if form.workflow_id is None:
             raise ToolError("Open a new webhook form.")
+        # Validate here so framework validation errors cannot echo secret inputs.
+        try:
+            authentication = WebhookAuthenticationChanges.model_validate(changes)
+        except ValidationError:
+            raise ToolError(
+                "Invalid webhook authentication changes. Use only secret/header "
+                "pairs and string-valued required header/query objects."
+            ) from None
         async with api_client(form.workspace) as api:
-            return await _save(api, form.workflow_id, changes)
+            return await _save(
+                api,
+                form.workflow_id,
+                authentication.model_dump(mode="json", exclude_unset=True),
+            )

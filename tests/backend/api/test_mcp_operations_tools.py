@@ -246,7 +246,7 @@ async def test_evaluate_stored_version(
             workflow=wid, graph=graph, inputs=inputs, execution_id=eid, **kwargs
         )
         if outcome == "failure":
-            raise RuntimeError("evaluation failed")
+            raise RuntimeError("provider-secret-must-not-leak")
         if outcome == "timeout":
             await asyncio.sleep(2)
         await sink.send_json({"event": "evaluation_result", "payload": {"score": 1}})
@@ -279,6 +279,7 @@ async def test_evaluate_stored_version(
             error = await mcp.call_error("evaluate_workflow", args)
             assert ("HTTP 504" if outcome == "timeout" else "HTTP 422") in error
             assert seen["execution_id"] in error
+            assert "provider-secret-must-not-leak" not in error
     assert seen["workspace_id"] is not None
     assert seen["stored_runnable_config"]["configurable"]["version"] == 1
     assert seen["inputs"] == {"seed": 7}
@@ -451,8 +452,11 @@ async def test_new_workflow_tools_enforce_workspace_boundary(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", ["success", "setup_timeout", "run_timeout", "setup_failure"]
+)
 async def test_evaluation_executes_and_records_history(
-    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch, outcome: str
 ) -> None:
     """Evaluate a real graph with in-memory stores and no external providers."""
     from contextlib import asynccontextmanager
@@ -464,6 +468,10 @@ async def test_evaluation_executes_and_records_history(
 
     @asynccontextmanager
     async def checkpointer(_settings: Any) -> AsyncIterator[MemorySaver]:
+        if outcome == "setup_timeout":
+            await asyncio.sleep(2)
+        if outcome == "setup_failure":
+            raise RuntimeError("provider-secret-must-not-leak")
         yield MemorySaver()
 
     @asynccontextmanager
@@ -472,6 +480,13 @@ async def test_evaluation_executes_and_records_history(
 
     monkeypatch.setattr(backend, "create_checkpointer", checkpointer)
     monkeypatch.setattr(backend, "create_graph_store", graph_store)
+    if outcome == "run_timeout":
+        from orcheo_backend.app.workflow_execution import AgentensorNode
+
+        async def slow_node(*args: Any, **kwargs: Any) -> None:
+            await asyncio.sleep(2)
+
+        monkeypatch.setattr(AgentensorNode, "__call__", slow_node)
     async with mcp_session(api_client.app) as mcp:
         created = await mcp.call(
             "upload_workflow",
@@ -481,19 +496,69 @@ async def test_evaluation_executes_and_records_history(
                 "entrypoint": "build_graph",
             },
         )
-        result = await mcp.call(
-            "evaluate_workflow",
-            {
-                "workflow": created["workflow"]["id"],
-                "evaluation": {"dataset": {"cases": [{"inputs": {"topic": "test"}}]}},
-            },
-        )
+        wid = created["workflow"]["id"]
+        args = {
+            "workflow": wid,
+            "evaluation": {"dataset": {"cases": [{"inputs": {"topic": "test"}}]}},
+            "timeout_seconds": 1,
+        }
+        if outcome == "success":
+            result = await mcp.call("evaluate_workflow", args)
+            assert result["status"] == "completed"
+            assert result["result"] is not None
+            execution_id = result["execution_id"]
+        else:
+            error = await mcp.call_error("evaluate_workflow", args)
+            assert ("HTTP 422" if outcome == "setup_failure" else "HTTP 504") in error
+            assert "provider-secret-must-not-leak" not in error
+            runs = await mcp.call("list_workflow_executions", {"workflow": wid})
+            execution_id = runs["executions"][0]["execution_id"]
+            assert execution_id in error
         history = await mcp.call(
-            "get_execution_history", {"execution_id": result["execution_id"]}
+            "get_execution_history", {"execution_id": execution_id}
         )
-    assert result["status"] == "completed"
-    assert result["result"] is not None
-    assert history["status"] == "completed"
-    assert any(
-        step["payload"].get("event") == "evaluation_result" for step in history["steps"]
+    expected = (
+        "completed"
+        if outcome == "success"
+        else "error"
+        if outcome == "setup_failure"
+        else "cancelled"
     )
+    assert history["status"] == expected
+    assert history["completed_at"] is not None
+    if outcome == "success":
+        assert any(
+            step["payload"].get("event") == "evaluation_result"
+            for step in history["steps"]
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"allowed_methods": ["DELETE"]},
+        {"rate_limit": {"limit": 1}},
+        {"unexpected": "private-value"},
+        {"required_headers": {"x-secret": {"invalid": "private-value"}}},
+        {"shared_secret": {"invalid": "private-value"}},
+    ],
+)
+async def test_webhook_form_rejects_invalid_changes_without_echoing_secrets(
+    api_client: TestClient, changes: dict[str, Any]
+) -> None:
+    async with mcp_session(api_client.app) as mcp:
+        created = await mcp.call(
+            "upload_workflow", {"name": "Strict hook", "script": SIMPLE_SCRIPT}
+        )
+        wid = created["workflow"]["id"]
+        opened = await mcp.call_result("open_webhook_form", {"workflow": wid})
+        before = api_client.get(f"/api/workflows/{wid}/triggers/webhook/config").json()
+        error = await mcp.call_error(
+            "save_webhook_config",
+            {"form_token": opened["_meta"][FORM_TOKEN_META_KEY], "changes": changes},
+        )
+        after = api_client.get(f"/api/workflows/{wid}/triggers/webhook/config").json()
+    assert "Invalid webhook authentication changes" in error
+    assert "private-value" not in error
+    assert before == after

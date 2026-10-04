@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import asyncio
+import logging
 from typing import Any
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query
@@ -24,6 +25,7 @@ from orcheo_backend.app.workspace import WorkspaceContextDep
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class _EvaluationResult:
@@ -95,10 +97,13 @@ async def evaluate_workflow(
             },
         ) from exc
     except Exception as exc:
+        logger.exception("Evaluation %s failed", execution_id)
         raise HTTPException(
             status_code=422,
             detail={
-                "message": f"Evaluation {execution_id} failed: {exc}",
+                "message": (
+                    f"Evaluation {execution_id} failed. See server logs for details."
+                ),
                 "execution_id": execution_id,
             },
         ) from exc

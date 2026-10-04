@@ -681,35 +681,35 @@ async def _run_evaluation_node(
             step=history_step,
         )
 
-    with credential_resolution(resolver):
-        async with create_checkpointer(settings) as checkpointer:
-            async with create_graph_store(settings) as graph_store:
-                graph = build_graph(graph_config)
-                compiled_graph = graph.compile(
-                    checkpointer=checkpointer,
-                    store=graph_store,
-                )
-        node = AgentensorNode(
-            name="agentensor_evaluator",
-            mode="evaluate",
-            prompts=parsed_config.prompts or {},
-            dataset=evaluation_request.dataset,
-            evaluators=evaluation_request.evaluators,
-            max_cases=evaluation_request.max_cases,
-            compiled_graph=compiled_graph,
-            graph_config=graph_config,
-            state_config=state_config,
-            progress_callback=on_progress,
-        )
-        state = _build_initial_state(
-            graph_config,
-            inputs,
-            state_config,
-            workspace_id,
-        )
-        _log_sensitive_debug("Initial state: %s", state)
+    try:
+        with credential_resolution(resolver):
+            async with create_checkpointer(settings) as checkpointer:
+                async with create_graph_store(settings) as graph_store:
+                    graph = build_graph(graph_config)
+                    compiled_graph = graph.compile(
+                        checkpointer=checkpointer,
+                        store=graph_store,
+                    )
+            node = AgentensorNode(
+                name="agentensor_evaluator",
+                mode="evaluate",
+                prompts=parsed_config.prompts or {},
+                dataset=evaluation_request.dataset,
+                evaluators=evaluation_request.evaluators,
+                max_cases=evaluation_request.max_cases,
+                compiled_graph=compiled_graph,
+                graph_config=graph_config,
+                state_config=state_config,
+                progress_callback=on_progress,
+            )
+            state = _build_initial_state(
+                graph_config,
+                inputs,
+                state_config,
+                workspace_id,
+            )
+            _log_sensitive_debug("Initial state: %s", state)
 
-        try:
             result = await node(state, runtime_config)
             node_payload = result.get("node_results", {}).get(
                 node.name, result.get("node_results", result)
@@ -736,39 +736,39 @@ async def _run_evaluation_node(
                 execution_id,
                 step=final_step,
             )
-        except asyncio.CancelledError as exc:
-            reason = str(exc) or "Evaluation cancelled"
-            record_workflow_cancellation(span, reason=reason)
-            cancellation_payload = {"status": "cancelled", "reason": reason}
-            await history_store.append_step(execution_id, cancellation_payload)
-            await history_store.mark_cancelled(execution_id, reason=reason)
-            await _emit_trace_update(
-                history_store,
-                websocket,
-                execution_id,
-                include_root=True,
-                complete=True,
-            )
-            raise
-        except Exception as exc:
-            record_workflow_failure(span, exc)
-            error_message = str(exc)
-            error_payload = {"status": "error", "error": error_message}
-            await _persist_failure_history(
-                history_store,
-                execution_id,
-                error_payload,
-                error_message,
-                span,
-            )
-            await _emit_trace_update(
-                history_store,
-                websocket,
-                execution_id,
-                include_root=True,
-                complete=True,
-            )
-            raise
+    except asyncio.CancelledError as exc:
+        reason = str(exc) or "Evaluation cancelled"
+        record_workflow_cancellation(span, reason=reason)
+        cancellation_payload = {"status": "cancelled", "reason": reason}
+        await history_store.append_step(execution_id, cancellation_payload)
+        await history_store.mark_cancelled(execution_id, reason=reason)
+        await _emit_trace_update(
+            history_store,
+            websocket,
+            execution_id,
+            include_root=True,
+            complete=True,
+        )
+        raise
+    except Exception as exc:
+        record_workflow_failure(span, exc)
+        error_message = str(exc)
+        error_payload = {"status": "error", "error": error_message}
+        await _persist_failure_history(
+            history_store,
+            execution_id,
+            error_payload,
+            error_message,
+            span,
+        )
+        await _emit_trace_update(
+            history_store,
+            websocket,
+            execution_id,
+            include_root=True,
+            complete=True,
+        )
+        raise
 
 
 async def _run_training_node(

@@ -119,6 +119,11 @@ evaluator definitions can load Python entrypoints. Node execution requires
 and forms require `workflows:write`. Candidate installation and updates require
 `workflows:write`, while catalog reads require `workflows:read`.
 
+`apps:publish` is advertised as supported but excluded from default MCP client
+registrations. Clients that need publication must explicitly request that scope
+when registering, and the user must approve it on the consent screen. First-party
+Studio sessions retain publishing access.
+
 Existing OAuth grants do not gain new scopes automatically. Reconnect and
 approve the needed hosted-app, workspace or service-token access. Workspace
 roles still apply; a grant does not turn an editor into an administrator.

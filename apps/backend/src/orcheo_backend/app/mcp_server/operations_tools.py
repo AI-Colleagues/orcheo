@@ -48,7 +48,7 @@ def register_operations_tools(server: FastMCP) -> None:
     async def execute_node(
         node_config: dict[str, Any],
         inputs: dict[str, Any] | None = None,
-        workflow: str | None = None,
+        workflow: WorkflowArg | None = None,
         workspace: WorkspaceArg = None,
     ) -> dict[str, Any]:
         """Execute one node for testing; integrations can have real side effects."""
@@ -122,6 +122,7 @@ def _register_history_tools(server: FastMCP) -> None:
         """Read recorded step payloads; from_step slices history without rerunning."""
         async with api_client(workspace) as api:
             if from_step:
+                # Replay returns stored steps only; it never executes the graph.
                 return await api.post(
                     f"/api/executions/{execution_id}/replay",
                     json_body={"from_step": from_step},

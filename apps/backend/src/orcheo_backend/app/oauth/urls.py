@@ -18,6 +18,11 @@ MCP_RESOURCE_PATH = "/api/mcp"
 OAUTH_PREFIX = "/api/oauth"
 PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
 SUPPORTED_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES
+# Publishing is available to first-party sessions, but third-party clients must
+# request it explicitly when registering and obtain the user's consent.
+DEFAULT_OAUTH_SCOPES: tuple[str, ...] = tuple(
+    scope for scope in SUPPORTED_SCOPES if scope != "apps:publish"
+)
 
 
 def _first_forwarded(value: str | None) -> str | None:
@@ -51,6 +56,7 @@ def resource_metadata_url(origin: str) -> str:
 
 
 __all__ = [
+    "DEFAULT_OAUTH_SCOPES",
     "MCP_RESOURCE_PATH",
     "OAUTH_PREFIX",
     "PROTECTED_RESOURCE_METADATA_PATH",
