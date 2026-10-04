@@ -17,7 +17,13 @@ from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
 MCP_RESOURCE_PATH = "/api/mcp"
 OAUTH_PREFIX = "/api/oauth"
 PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
-SUPPORTED_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES
+SUPPORTED_SCOPES: tuple[str, ...] = (
+    *DEFAULT_USER_SCOPES,
+    "workspaces:write",
+    "admin:tokens:write",
+)
+# New mutating capabilities require an explicit request and user consent.
+DEFAULT_OAUTH_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES
 
 
 def _first_forwarded(value: str | None) -> str | None:
@@ -51,6 +57,7 @@ def resource_metadata_url(origin: str) -> str:
 
 
 __all__ = [
+    "DEFAULT_OAUTH_SCOPES",
     "MCP_RESOURCE_PATH",
     "OAUTH_PREFIX",
     "PROTECTED_RESOURCE_METADATA_PATH",

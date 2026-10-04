@@ -244,11 +244,43 @@ async def test_every_tool_declares_its_oauth_scopes() -> None:
     tools = await build_mcp_server().list_tools()
     unscoped = {tool.name for tool in tools if not required_scopes(tool)}
 
-    # Only tools that touch no workspace data may skip a scope.
+    # Only catalog, workspace discovery and server capability tools may skip scopes.
     assert unscoped == {
         "describe_component",
         "get_active_workspace",
         "get_server_info",
+        "get_server_readiness",
+        "get_server_features",
+        "list_server_plugins",
         "list_components",
         "list_my_workspaces",
     }
+
+
+@pytest.mark.asyncio
+async def test_client_uploads_multipart_bundle_and_reports_errors() -> None:
+    app = FastAPI()
+
+    @app.post("/upload")
+    async def upload(request: Request) -> dict[str, Any]:
+        async with request.form() as form:
+            bundle = form["bundle"]
+            return {
+                "filename": bundle.filename,
+                "content_type": bundle.content_type,
+                "content": (await bundle.read()).decode(),
+            }
+
+    async with InProcessApiClient(_incoming_request(app)) as api:
+        result = await api.upload("/upload", bundle=b"test bundle")
+        with pytest.raises(McpApiError) as excinfo:
+            await api.upload("/missing", bundle=b"test bundle")
+
+    assert result == {
+        "filename": "bundle.zip",
+        "content_type": "application/zip",
+        "content": "test bundle",
+    }
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.method == "POST"
+    assert excinfo.value.detail == "Not Found"

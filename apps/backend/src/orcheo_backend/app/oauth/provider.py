@@ -41,6 +41,7 @@ from orcheo_backend.app.identity.service import IdentityService, IssuedTokens
 from orcheo_backend.app.identity.tokens import hash_secret
 from orcheo_backend.app.oauth.handlers import registration_endpoint, revocation_endpoint
 from orcheo_backend.app.oauth.urls import (
+    DEFAULT_OAUTH_SCOPES,
     MCP_RESOURCE_PATH,
     OAUTH_PREFIX,
     SUPPORTED_SCOPES,
@@ -117,7 +118,7 @@ class OrcheoOAuthProvider(OAuthProvider):
             client_registration_options=ClientRegistrationOptions(
                 enabled=True,
                 valid_scopes=list(SUPPORTED_SCOPES),
-                default_scopes=list(SUPPORTED_SCOPES),
+                default_scopes=list(DEFAULT_OAUTH_SCOPES),
             ),
             revocation_options=RevocationOptions(enabled=True),
         )

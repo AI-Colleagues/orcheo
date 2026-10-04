@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from orcheo.runtime.runnable_config import RunnableConfigModel
 
 
 class ManualDispatchValidationError(ValueError):
@@ -98,6 +99,7 @@ class ManualDispatchRun:
 
     workflow_version_id: UUID
     input_payload: dict[str, Any]
+    runnable_config: dict[str, Any] | None = None
 
 
 class ManualDispatchItem(BaseModel):
@@ -115,6 +117,10 @@ class ManualDispatchItem(BaseModel):
     input_payload: dict[str, Any] = Field(
         default_factory=dict,
         description="Payload supplied as the run's input context.",
+    )
+    runnable_config: RunnableConfigModel | None = Field(
+        default=None,
+        description="Per-run overrides merged with the stored version configuration.",
     )
 
 
@@ -186,6 +192,11 @@ class ManualDispatchRequest(BaseModel):
                 ManualDispatchRun(
                     workflow_version_id=version_id,
                     input_payload=dict(item.input_payload),
+                    runnable_config=item.runnable_config.model_dump(
+                        mode="json", exclude_unset=True
+                    )
+                    if item.runnable_config is not None
+                    else None,
                 )
             )
         return resolved

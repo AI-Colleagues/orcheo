@@ -69,8 +69,8 @@ def _result(
     structured: dict[str, Any],
     meta: dict[str, Any] | None = None,
 ) -> ToolResult:
-    # Only ``content`` reaches the model; ``structured_content`` and ``meta``
-    # are delivered to the embedded view.
+    # Both content and structured_content may reach the model. Only meta is
+    # private to the embedded view; never put secrets in either content field.
     return ToolResult(content=text, structured_content=structured, meta=meta)
 
 

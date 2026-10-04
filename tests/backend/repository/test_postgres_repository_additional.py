@@ -3101,7 +3101,13 @@ async def test_triggers_dispatch_manual_runs_success(
 
     request = ManualDispatchRequest(
         workflow_id=workflow_id,
-        runs=[{"workflow_version_id": version_id, "input_payload": {"test": 1}}],
+        runs=[
+            {
+                "workflow_version_id": version_id,
+                "input_payload": {"test": 1},
+                "runnable_config": {"configurable": {"model": "override"}},
+            }
+        ],
     )
 
     with patch(
@@ -3112,6 +3118,11 @@ async def test_triggers_dispatch_manual_runs_success(
     assert len(runs) == 1
     assert runs[0].id == run_id
     assert mock_enqueue.called
+
+    assert repo._create_run_locked.call_args.kwargs["runnable_config"] == {
+        "configurable": {"model": "override"}
+    }
+    assert repo._create_run_locked.call_args.kwargs["dispatch_requested"] is True
 
 
 @pytest.mark.asyncio

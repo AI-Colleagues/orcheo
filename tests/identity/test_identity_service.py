@@ -94,7 +94,8 @@ def test_verify_code_creates_user_and_mints_claims() -> None:
     assert claims["email_verified"] is True
     assert claims["iss"] == ISSUER
     assert claims["scope"] == (
-        "workflows:read workflows:write workflows:execute vault:read vault:write"
+        "workflows:read workflows:write workflows:execute vault:read vault:write "
+        "workspaces:read admin:tokens:read"
     )
     assert "workflows:execute" in claims["scopes"]
 
@@ -154,7 +155,15 @@ def test_refresh_rotates_and_old_token_fails() -> None:
 
     rotated = service.refresh(issued.refresh_token)
     assert rotated.refresh_token != issued.refresh_token
-    assert rotated.access_token
+    claims = jwt.decode(
+        rotated.access_token, SECRET, algorithms=["HS256"], audience="orcheo"
+    )
+    expected_scopes = (
+        "workflows:read workflows:write workflows:execute vault:read vault:write "
+        "workspaces:read admin:tokens:read"
+    )
+    assert claims["scope"] == expected_scopes
+    assert claims["scopes"] == expected_scopes.split()
 
     # The original refresh token is now consumed (rotated away).
     with pytest.raises(IdentitySessionNotFoundError):

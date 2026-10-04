@@ -20,7 +20,7 @@ from orcheo_backend.app.authentication import (
     get_auth_rate_limiter,
 )
 from orcheo_backend.app.identity.dependencies import get_client_ip
-from orcheo_backend.app.oauth.urls import SUPPORTED_SCOPES
+from orcheo_backend.app.oauth.urls import DEFAULT_OAUTH_SCOPES, SUPPORTED_SCOPES
 
 
 if TYPE_CHECKING:
@@ -119,7 +119,7 @@ def registration_endpoint(provider: OrcheoOAuthProvider) -> Endpoint:
             client_id=client_id,
             client_id_issued_at=int(time.time()),
             token_endpoint_auth_method=method,
-            scope=metadata.scope or " ".join(SUPPORTED_SCOPES),
+            scope=metadata.scope or " ".join(DEFAULT_OAUTH_SCOPES),
         )
         if method != "none":
             fields.update(

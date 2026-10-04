@@ -129,7 +129,9 @@ class OAuthHarness:
 
     async def grant(self, **params: str) -> dict:
         """Run the whole flow for a new client and return its tokens."""
-        client = await self.register()
+        client = await self.register(
+            **({"scope": params["scope"]} if "scope" in params else {})
+        )
         verifier = _verifier()
         code = await self.authorize(client["client_id"], verifier, **params)
         issued = await self.token(
@@ -246,6 +248,8 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "workflows:execute",
             "vault:read",
             "vault:write",
+            "workspaces:read",
+            "admin:tokens:read",
         ]
         verifier = _verifier()
         code = await oauth.authorize(client["client_id"], verifier)
@@ -595,3 +599,239 @@ async def test_consent_names_custom_redirect_schemes(
         )
 
         assert view.json()["redirect_host"] == "evilapp://claude.ai"
+
+
+@pytest.mark.asyncio()
+async def test_new_mcp_tools_require_their_approved_scopes(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """Workflow grants cannot use write tools or credential validation tools."""
+    async with oauth_session(oauth_env) as oauth:
+        read = (await oauth.grant(scope="workflows:read"))["access_token"]
+        listed = await _mcp(oauth.client, "tools/list", {}, token=read)
+        names = {tool["name"] for tool in listed.json()["result"]["tools"]}
+        assert {
+            "get_execution_history",
+            "diff_workflow_versions",
+            "get_webhook_config",
+            "list_agentensor_checkpoints",
+        } <= names
+        assert names.isdisjoint(
+            {
+                "configure_webhook",
+                "validate_workflow_credentials",
+                "execute_node",
+                "evaluate_workflow",
+            }
+        )
+
+
+@pytest.mark.asyncio()
+async def test_administration_tools_require_explicit_oauth_scopes(oauth_env) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        workflow = (await oauth.grant(scope="workflows:read"))["access_token"]
+        admin_read = (await oauth.grant(scope="workspaces:read admin:tokens:read"))[
+            "access_token"
+        ]
+        for token, expected, forbidden in (
+            (
+                workflow,
+                {"list_workflows"},
+                {
+                    "list_workspaces",
+                    "list_service_tokens",
+                    "open_service_token_form",
+                    "create_workspace",
+                },
+            ),
+            (
+                admin_read,
+                {
+                    "list_workspaces",
+                    "get_workspace",
+                    "list_workspace_members",
+                    "list_service_tokens",
+                    "get_service_token",
+                },
+                {
+                    "create_workspace",
+                    "delete_workspace",
+                    "open_service_token_form",
+                    "create_service_token",
+                    "revoke_service_token",
+                },
+            ),
+        ):
+            listing = await _mcp(oauth.client, "tools/list", {}, token=token)
+            names = {t["name"] for t in listing.json()["result"]["tools"]}
+            assert expected <= names
+            assert forbidden.isdisjoint(names)
+            denied = await _mcp(
+                oauth.client,
+                "tools/call",
+                {
+                    "name": "create_workspace",
+                    "arguments": {"slug": "denied", "name": "Denied"},
+                },
+                token=token,
+            )
+            assert denied.json()["result"]["isError"]
+            assert "workspaces:write" in denied.text
+        allowed = (await oauth.grant(scope="workspaces:read workspaces:write"))[
+            "access_token"
+        ]
+        created = await _mcp(
+            oauth.client,
+            "tools/call",
+            {
+                "name": "create_workspace",
+                "arguments": {"slug": "oauth-owned", "name": "OAuth Owned"},
+            },
+            token=allowed,
+        )
+        assert not created.json()["result"].get("isError"), created.text
+        assert created.json()["result"]["structuredContent"]["slug"] == "oauth-owned"
+
+
+@pytest.mark.asyncio()
+async def test_service_token_form_binds_oauth_client_and_limits_minted_scopes(
+    oauth_env,
+    monkeypatch,
+) -> None:
+    import json
+    from importlib import import_module
+    from orcheo_backend.app.mcp_server.form_tokens import FORM_TOKEN_META_KEY
+    from orcheo_backend.app.mcp_server.service_token_tools import (
+        SERVICE_TOKEN_SECRET_META_KEY,
+    )
+    from orcheo_backend.app.authentication import ServiceTokenManager
+    from orcheo_backend.app.service_token_repository import (
+        InMemoryServiceTokenRepository,
+    )
+
+    manager = ServiceTokenManager(InMemoryServiceTokenRepository())
+    monkeypatch.setattr(
+        import_module("orcheo_backend.app.service_token_endpoints"),
+        "get_service_token_manager",
+        lambda: manager,
+    )
+
+    async with oauth_session(oauth_env) as oauth:
+        scope = "admin:tokens:read admin:tokens:write workflows:read"
+        access = (await oauth.grant(scope=scope))["access_token"]
+        other_client = (await oauth.grant(scope=scope))["access_token"]
+        read_only = (await oauth.grant(scope="admin:tokens:read"))["access_token"]
+
+        async def call(name, arguments, token=access):
+            response = await _mcp(
+                oauth.client,
+                "tools/call",
+                {"name": name, "arguments": arguments},
+                token=token,
+            )
+            assert response.status_code == 200
+            return response.json()["result"]
+
+        opened = await call("open_service_token_form", {"scopes": ["workflows:read"]})
+        assert not opened.get("isError"), opened
+        form_token = opened["_meta"][FORM_TOKEN_META_KEY]
+        arguments = {"form_token": form_token, "scopes": ["workflows:read"]}
+        wrong_client = await call("create_service_token", arguments, other_client)
+        assert wrong_client["isError"] and "different application" in json.dumps(
+            wrong_client
+        )
+        denied = await call("create_service_token", arguments, read_only)
+        assert denied["isError"] and "admin:tokens:write" in json.dumps(denied)
+        escalation = await call(
+            "create_service_token", {**arguments, "scopes": ["vault:write"]}
+        )
+        assert escalation["isError"] and "403" in json.dumps(escalation)
+        created = await call("create_service_token", arguments)
+        assert not created.get("isError"), created
+        secret = created["_meta"][SERVICE_TOKEN_SECRET_META_KEY]
+        assert secret not in json.dumps(
+            {k: v for k, v in created.items() if k != "_meta"}
+        )
+        token_id = created["structuredContent"]["identifier"]
+        read = await call("get_service_token", {"token_id": token_id}, read_only)
+        assert not read.get("isError")
+        assert secret not in json.dumps(read)
+        assert "secret_preview" not in read["structuredContent"]
+        # Even a grant for token management cannot bypass the private App over REST.
+        direct = await oauth.client.post(
+            "/api/admin/service-tokens",
+            json={"scopes": []},
+            headers={"Authorization": f"Bearer {access}"},
+        )
+        assert direct.status_code == 403
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize("explicit_scope", [False, True])
+@pytest.mark.parametrize(
+    ("scope", "tool"),
+    [
+        ("workspaces:write", "create_workspace"),
+        ("admin:tokens:write", "open_service_token_form"),
+    ],
+)
+async def test_mutating_capabilities_require_explicit_client_scope(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+    explicit_scope: bool,
+    scope: str,
+    tool: str,
+) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
+
+        assert scope not in DEFAULT_USER_SCOPES
+        metadata = (
+            await oauth.client.get("/.well-known/oauth-authorization-server/api/oauth")
+        ).json()
+        assert scope in metadata["scopes_supported"]
+        registration = (
+            {"scope": " ".join((*DEFAULT_USER_SCOPES, scope))} if explicit_scope else {}
+        )
+        client = await oauth.register(**registration)
+        verifier = _verifier()
+        started = await oauth.start(client["client_id"], verifier)
+        assert started.status_code == 302
+        request_id = parse_qs(urlparse(started.headers["location"]).query)["request"][0]
+        consent = await oauth.client.get(
+            f"/api/oauth/requests/{request_id}",
+            headers={"Authorization": f"Bearer {oauth.studio_token()}"},
+        )
+        assert (scope in consent.json()["scopes"]) is explicit_scope
+        redirect = await oauth.consent(started.headers["location"])
+        code = parse_qs(urlparse(redirect).query)["code"][0]
+        issued = await oauth.token(
+            grant_type="authorization_code",
+            code=code,
+            redirect_uri=REDIRECT_URI,
+            client_id=client["client_id"],
+            code_verifier=verifier,
+        )
+        assert issued.status_code == 200, issued.text
+        assert (scope in issued.json()["scope"].split()) is explicit_scope
+        result = await _mcp(
+            oauth.client, "tools/list", {}, issued.json()["access_token"]
+        )
+        names = {tool["name"] for tool in result.json()["result"]["tools"]}
+        assert (tool in names) is explicit_scope
+        refreshed = await oauth.token(
+            grant_type="refresh_token",
+            refresh_token=issued.json()["refresh_token"],
+            client_id=client["client_id"],
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        assert (scope in refreshed.json()["scope"].split()) is explicit_scope
+        if not explicit_scope:
+            denied = await _mcp(
+                oauth.client,
+                "tools/call",
+                {"name": tool, "arguments": {}},
+                refreshed.json()["access_token"],
+            )
+            result = denied.json()["result"]
+            assert result["isError"]
+            assert f"not granted {scope}" in str(result)

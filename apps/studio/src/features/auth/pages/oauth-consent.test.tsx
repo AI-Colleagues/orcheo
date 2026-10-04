@@ -36,7 +36,13 @@ const pendingRequest = {
   client_name: "Claude Code",
   client_uri: null,
   redirect_host: "127.0.0.1:33418",
-  scopes: ["workflows:read", "vault:write", "custom:scope"],
+  scopes: [
+    "workflows:read",
+    "vault:write",
+    "workspaces:write",
+    "admin:tokens:write",
+    "custom:scope",
+  ],
 };
 
 const assign = vi.fn();
@@ -62,6 +68,12 @@ describe("OAuthConsent", () => {
     expect(screen.getByText("dana@example.com")).toBeTruthy();
     expect(screen.getByText("View workflows, runs and traces")).toBeTruthy();
     expect(screen.getByText("Add, change and delete credentials")).toBeTruthy();
+    expect(
+      screen.getByText("Create and delete workspaces and manage membership"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Create and revoke service tokens through a private form"),
+    ).toBeTruthy();
     expect(screen.getByText("custom:scope")).toBeTruthy();
     expect(screen.getByText("127.0.0.1:33418")).toBeTruthy();
     expect(authFetch).toHaveBeenCalledWith(
