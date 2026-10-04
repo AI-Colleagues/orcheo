@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Orcheo service token</title>
+    <style>
+      :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
+      :root[data-theme="light"] { color-scheme: light; }
+      :root[data-theme="dark"] { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 16px; color: CanvasText; background: Canvas; }
+      h1 { font-size: 18px; margin: 0 0 8px; }
+      p { margin: 0 0 12px; }
+      .fields { display: grid; gap: 12px; max-width: 520px; }
+      label { display: grid; gap: 4px; }
+      input, select, button { font: inherit; border: 1px solid GrayText; border-radius: 6px; padding: 8px; }
+      input, select { width: 100%; background: Field; color: FieldText; }
+      select { min-height: 130px; }
+      button { cursor: pointer; }
+      button:disabled { opacity: .6; cursor: default; }
+      .primary { background: #3b5bdb; color: white; border-color: #3b5bdb; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; }
+      .note { font-size: 12px; }
+      #status { margin-top: 12px; min-height: 22px; }
+      #status.error { color: light-dark(#b42318, #ffaaa0); }
+      #status.success { color: light-dark(#18713c, #8ce99a); }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <h1 id="title">Service token</h1>
+    <p id="workspace"></p>
+    <p>New token secrets are shown only here. They are never sent to the AI assistant and cannot be retrieved after you close this view.</p>
+    <div class="fields">
+      <div id="create-fields" class="fields">
+        <label>Name (optional)<input id="name" autocomplete="off" /></label>
+        <label>Permissions
+          <select id="scopes" multiple aria-describedby="scopes-note"></select>
+          <span id="scopes-note" class="note">Select the permissions this token needs. Only permissions you have granted this application are available.</span>
+        </label>
+        <label>Expires after (seconds, optional)
+          <input id="expiry" type="number" min="60" step="1" placeholder="No expiration" />
+        </label>
+      </div>
+      <div id="revoke-fields" class="fields" hidden>
+        <p id="token-info"></p>
+        <p>Revoking this token immediately stops applications that use it from authenticating.</p>
+        <label>Reason<input id="reason" autocomplete="off" /></label>
+      </div>
+      <div><button id="submit" class="primary" type="button" disabled>Create token</button></div>
+      <div id="secret-panel" class="fields" hidden>
+        <label>New token
+          <input id="secret" type="password" readonly autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="row">
+          <button id="reveal" type="button">Show</button>
+          <button id="copy" type="button">Copy token</button>
+          <button id="clear" type="button">Clear token from view</button>
+        </div>
+        <p class="note">Copy this token to your application or password manager before closing. Existing tokens are stored as hashes and cannot be revealed again.</p>
+      </div>
+    </div>
+    <p id="status" role="status"></p>
+    <script>
+      /* ORCHEO_BRIDGE */
+    </script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let form = null;
+      const setStatus = (text, kind = "") => {
+        $("status").textContent = text;
+        $("status").className = kind;
+      };
+      const clearSecret = () => {
+        $("secret").value = "";
+        $("secret").type = "password";
+        $("reveal").textContent = "Show";
+        $("secret-panel").hidden = true;
+      };
+      const load = (result) => {
+        // Only the opener initializes the form. Mutation results are handled
+        // directly below, never forwarded into model context.
+        const token = (result._meta || {})["orcheo/formToken"];
+        if (!token) {
+          if ((result.structuredContent || {}).action) {
+            clearSecret();
+            form = null;
+            $("submit").disabled = true;
+            setStatus("This host did not deliver the private form. Use a host that supports private MCP App results.", "error");
+          }
+          return;
+        }
+        clearSecret();
+        const data = result.structuredContent || {};
+        form = { token, action: data.action, busy: false, done: false };
+        const revoking = data.action === "revoke";
+        $("title").textContent = revoking ? "Revoke service token" : "Create service token";
+        $("workspace").textContent = `Workspace: ${data.workspace || ""}`;
+        $("create-fields").hidden = revoking;
+        $("revoke-fields").hidden = !revoking;
+        $("submit").textContent = revoking ? "Revoke token" : "Create token";
+        $("name").value = data.name || "";
+        $("expiry").value = data.expires_in_seconds ?? "";
+        $("reason").value = "";
+        $("token-info").textContent = data.token
+          ? `Token: ${data.token.name || data.token.identifier} (${data.token.identifier})`
+          : "";
+        $("scopes").replaceChildren();
+        for (const scope of data.available_scopes || []) {
+          const option = document.createElement("option");
+          option.value = scope;
+          option.textContent = scope;
+          option.selected = (data.scopes || []).includes(scope);
+          $("scopes").append(option);
+        }
+        $("submit").disabled = false;
+        setStatus("");
+      };
+      $("reveal").addEventListener("click", () => {
+        $("secret").type = $("secret").type === "password" ? "text" : "password";
+        $("reveal").textContent = $("secret").type === "password" ? "Show" : "Hide";
+      });
+      $("copy").addEventListener("click", async () => {
+        if (!$("secret").value) return;
+        try {
+          await navigator.clipboard.writeText($("secret").value);
+          setStatus("Token copied.", "success");
+        } catch {
+          setStatus("Copy is unavailable here. Choose Show, then copy the token manually.", "error");
+        }
+      });
+      $("clear").addEventListener("click", () => {
+        clearSecret();
+        setStatus("Token cleared from this view. It remains active.");
+      });
+      $("submit").addEventListener("click", async () => {
+        if (!form || form.busy || form.done) return;
+        const current = form;
+        const revoking = current.action === "revoke";
+        const args = { form_token: current.token };
+        if (revoking) {
+          args.reason = $("reason").value.trim();
+          if (!args.reason) return setStatus("Enter a reason.", "error");
+        } else {
+          args.name = $("name").value.trim() || null;
+          args.scopes = Array.from($("scopes").selectedOptions, (option) => option.value);
+          const rawExpiry = $("expiry").value.trim();
+          const expiry = Number(rawExpiry);
+          if (!$("expiry").checkValidity() || (rawExpiry && (!Number.isSafeInteger(expiry) || expiry < 60))) {
+            return setStatus("Expiration must be at least 60 whole seconds.", "error");
+          }
+          args.expires_in_seconds = rawExpiry ? expiry : null;
+        }
+        current.busy = true;
+        $("submit").disabled = true;
+        clearSecret();
+        setStatus(revoking ? "Revoking…" : "Creating…");
+        try {
+          const result = await orcheoBridge.callTool(
+            revoking ? "revoke_service_token" : "create_service_token", args,
+          );
+          if (form !== current) return;
+          current.done = true;
+          if (!revoking) {
+            const secret = (result._meta || {})["orcheo/serviceTokenSecret"];
+            if (typeof secret !== "string" || !secret) {
+              setStatus("Token created, but this host did not deliver the private secret. Revoke it and use a host that supports private MCP App results.", "error");
+              return;
+            }
+            $("secret").value = secret;
+            $("secret-panel").hidden = false;
+          }
+          setStatus(revoking ? "Token revoked." : "Token created. Copy it before closing this view.", "success");
+          // Send only fixed status text. Neither result metadata nor the secret
+          // is ever included in a model-context update.
+          await orcheoBridge.tellModel(revoking
+            ? "The user revoked the service token in the private Orcheo form."
+            : "The user created a service token in the private Orcheo form. Its secret was shown only to the user.");
+        } catch (error) {
+          if (form === current) setStatus(error.message, "error");
+        } finally {
+          current.busy = false;
+          if (form === current) $("submit").disabled = current.done;
+        }
+      });
+      const dispose = () => {
+        clearSecret();
+        form = null;
+        $("submit").disabled = true;
+      };
+      window.addEventListener("pagehide", dispose);
+      orcheoBridge.on("ui/resource-teardown", dispose);
+      orcheoBridge.on("ui/notifications/tool-result", load);
+      orcheoBridge.connect("orcheo-service-token-form");
+    </script>
+  </body>
+</html>

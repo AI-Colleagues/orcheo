@@ -7,8 +7,9 @@ upload and inspect workflows, trigger runs and read their traces, manage
 schedules, publishing, listeners and credentials.
 
 The MCP server covers what you need **while the server is running**. Stack
-lifecycle (`orcheo stack`, `orcheo install`), plugin installation, workspace
-administration and service-token management stay CLI-only.
+lifecycle (`orcheo stack`, `orcheo install`) and plugin installation stay CLI-only.
+Workspace administration is available through scoped tools. Service token
+creation and revocation use a private MCP App so secrets never enter model context.
 
 ## Endpoint
 
@@ -87,9 +88,10 @@ a FastMCP `OAuthProvider` on top of the first-party passwordless login:
    `/api/oauth/revoke` or by logging out everywhere.
 
 Tokens granted this way are only accepted at `/api/mcp`; every other API route
-and WebSocket rejects them with `403` (`auth.oauth_client_token`), so a client
-cannot mint service tokens, approve its own consent requests, or read
-credential secrets.
+and WebSocket rejects them with `403` (`auth.oauth_client_token`). Clients cannot
+approve their own consent requests or read credential secrets through REST.
+Service token creation requires approved MCP access and a private App form;
+its result exposes the new secret only to the embedded view.
 
 The client only sees and can call the tools its approved scopes cover:
 
@@ -103,6 +105,10 @@ The client only sees and can call the tools its approved scopes cover:
 | `apps:read` | Hosted app metadata, deployments, collections and audit history; bindings also require `workflows:read` |
 | `apps:write` | Create and change hosted apps, upload bundles, and edit draft collections; saving bindings also requires `workflows:read` |
 | `apps:publish` | Publish and unpublish hosted apps; archive and restore also require `apps:write` |
+| `workspaces:read` | Workspace administration metadata, members, invitations and audit events |
+| `workspaces:write` | Workspace creation, lifecycle, membership and invitation changes |
+| `admin:tokens:read` | Service token metadata, without secrets or secret previews |
+| `admin:tokens:write` | Open private service token forms; App-only creation and revocation |
 
 Credential health reads require both `workflows:read` and `vault:read`.
 Validation requires `workflows:read` and `vault:write`; alert listing and
@@ -114,10 +120,11 @@ and forms require `workflows:write`. Candidate installation and updates require
 `workflows:write`, while catalog reads require `workflows:read`.
 
 Existing OAuth grants do not gain new scopes automatically. Reconnect and
-approve hosted-app access to use the hosted-app tools. Workspace roles still
-apply; a grant does not turn an editor into an administrator.
+approve the needed hosted-app, workspace or service-token access. Workspace
+roles still apply; a grant does not turn an editor into an administrator.
 
-The component catalog, workspace and server-info tools need no scope. Service
+The component catalog, workspace discovery (`list_my_workspaces` and
+`get_active_workspace`) and server-info tools need no scope. Service
 tokens and Studio sessions are not narrowed by these scopes; the API routes the
 tools call authorize them as usual.
 
@@ -148,7 +155,8 @@ address), so the token is not validated a second time. Workspace membership,
 role checks, quotas and workflow-upload trust settings apply exactly as they do
 for the CLI and Studio.
 
-Changes made through MCP are recorded in audit trails with the actor `mcp`.
+Workflow changes use the actor `mcp`. Workspace and service-token operations
+retain the REST routes' audit behavior and authenticated caller identity.
 
 !!! warning "Uploading workflows executes code"
     `upload_workflow` ingests Python like `orcheo workflow upload` does, so it
@@ -235,6 +243,53 @@ install when the server runs different plugins.
 | `get_server_features` | Read features enabled for the selected workspace. |
 | `list_server_plugins` | Inspect installed plugin versions and workspace availability. |
 
+### Workspace administration
+
+Scope approval does not grant a workspace role. Administrative routes still
+require admin or owner membership. `workspace` selects the context authorizing
+the call; lifecycle tools take a separate `workspace_id` identifying the
+workspace being managed.
+Member and invitation tools operate on the selected workspace.
+
+| Tool | Description |
+|------|-------------|
+| `list_workspaces` / `get_workspace` | Admin workspace inventory and metadata, including quotas and lifecycle state. |
+| `create_workspace` | Create a workspace owned by the caller; supplying `owner_user_id` uses the admin creation route. Accepts optional quotas. |
+| `update_workspace_status` | Activate, suspend or soft-delete a workspace. |
+| `delete_workspace` | Permanently delete a workspace and its memberships. |
+| `purge_deleted_workspaces` | Permanently delete soft-deleted workspaces past `retention_days` (default 30). |
+| `list_workspace_audit_events` | Read up to 500 workspace audit events. |
+| `list_workspace_members` / `add_workspace_member` | Inspect members or add a known user. |
+| `update_workspace_member_role` / `remove_workspace_member` | Change roles or remove members; requires admin or owner role. |
+| `list_workspace_invitations` / `create_workspace_invitation` / `revoke_workspace_invitation` | Inspect, email or revoke invitations. Acceptance links are delivered by email and never returned by these tools. |
+
+### Service tokens
+
+| Tool | Description |
+|------|-------------|
+| `list_service_tokens` / `get_service_token` | Read workspace token metadata, usage, expiry and revocation state. Neither secrets nor secret previews are returned. |
+| `open_service_token_form` | Open a private form with `action="create"`, or `action="revoke"` plus an existing `token_id`. Can prefill a name, scopes and expiration for creation. |
+| `create_service_token` / `revoke_service_token` | App-only actions requiring the signed form token; unavailable for direct model use. |
+
+The user confirms creation or revocation in the App. Created tokens belong only
+to the selected workspace, and their scopes cannot exceed the caller's approved
+scopes. Revocation requires a reason and targets the ID bound to the form.
+To replace a token, create and copy its replacement, update the consuming
+application, then open a revoke form for the old token.
+
+Token secrets are hashed in storage and cannot be recovered later. A new secret
+is returned once, only in `_meta["orcheo/serviceTokenSecret"]`, which is private
+to the App. Both normal `content` and `structuredContent` contain only safe
+metadata. The view supports reveal, copy and clearing; it never forwards the
+secret through model-context updates or saves it in browser storage. Form tokens
+expire after 15 minutes and bind the caller, OAuth client, workspace identity,
+action and target token. As with credential forms, they are stateless and may be
+reused within that expiry; the view disables submission after success.
+
+Hosts without MCP Apps or private result metadata cannot perform this flow;
+use Studio or `orcheo token create` instead. Existing OAuth grants must be
+reconnected to approve the new token-management scopes.
+
 ### Candidate workflows
 
 | Tool | Description |
@@ -276,6 +331,7 @@ render these tools' results as embedded views:
 |------|------|
 | `open_credential_form` | `ui://orcheo/credential-form`: a form where the user types the secret. |
 | `open_webhook_form` | `ui://orcheo/webhook-form`: webhook authentication and required header/query values, entered directly by the user. |
+| `open_service_token_form` | `ui://orcheo/service-token-form`: create, privately reveal/copy, or revoke a service token. |
 | `show_workflow_diagram` | `ui://orcheo/workflow-diagram`: a version's graph rendered with Mermaid. In other hosts the model receives the Mermaid source instead. |
 
 **Credentials never pass through the model.** The agent only opens the form. The

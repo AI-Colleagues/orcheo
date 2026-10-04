@@ -37,6 +37,10 @@ DEFAULT_USER_SCOPES: tuple[str, ...] = (
     "apps:read",
     "apps:write",
     "apps:publish",
+    "workspaces:read",
+    "workspaces:write",
+    "admin:tokens:read",
+    "admin:tokens:write",
 )
 
 

@@ -32,6 +32,10 @@ const SCOPE_LABELS: Record<string, string> = {
   "apps:read": "View hosted apps, bindings and deployments",
   "apps:write": "Create and change hosted apps and deployments",
   "apps:publish": "Publish and unpublish hosted apps",
+  "workspaces:read": "View workspace administration, members and invitations",
+  "workspaces:write": "Create and delete workspaces and manage membership",
+  "admin:tokens:read": "View service token metadata without secrets",
+  "admin:tokens:write": "Create and revoke service tokens through a private form",
 };
 
 const readError = async (response: Response, fallback: string) => {

@@ -18,8 +18,12 @@ from orcheo_backend.app.mcp_server.hosted_app_tools import register_hosted_app_t
 from orcheo_backend.app.mcp_server.operations_tools import register_operations_tools
 from orcheo_backend.app.mcp_server.run_tools import register_run_tools
 from orcheo_backend.app.mcp_server.scopes import OAuthScopeMiddleware
+from orcheo_backend.app.mcp_server.service_token_tools import (
+    register_service_token_tools,
+)
 from orcheo_backend.app.mcp_server.webhook_tools import register_webhook_tools
 from orcheo_backend.app.mcp_server.workflow_tools import register_workflow_tools
+from orcheo_backend.app.mcp_server.workspace_tools import register_workspace_tools
 
 
 MCP_ENABLED_ENV_VAR = "ORCHEO_MCP_ENABLED"
@@ -38,6 +42,8 @@ Every tool acts as the authenticated caller; pass `workspace` to target a \
 workspace other than the default one. Secrets are referenced in workflows as \
 [[credential_name]]. To add or change one, call open_credential_form: the user \
 enters the secret in a form you never see. Never ask for secrets in chat. \
+Use open_service_token_form to create or revoke service tokens privately; \
+only the user can reveal a newly created token in the App. \
 show_workflow_diagram renders a workflow's graph. Use get_execution_history \
 for recorded steps, validate_workflow_credentials for provider checks, and \
 open_webhook_form for webhook secrets. Hosted app publication requires an \
@@ -97,6 +103,8 @@ def build_mcp_server() -> FastMCP:
     register_candidate_tools(server)
     register_hosted_app_tools(server)
     register_webhook_tools(server)
+    register_workspace_tools(server)
+    register_service_token_tools(server)
     return server
 
 

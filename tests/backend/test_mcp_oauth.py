@@ -249,6 +249,10 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "apps:read",
             "apps:write",
             "apps:publish",
+            "workspaces:read",
+            "workspaces:write",
+            "admin:tokens:read",
+            "admin:tokens:write",
         ]
         verifier = _verifier()
         code = await oauth.authorize(client["client_id"], verifier)
@@ -647,3 +651,143 @@ async def test_new_mcp_tools_require_their_approved_scopes(
         )
         assert rejected.json()["result"]["isError"]
         assert "apps:publish" in rejected.text
+
+
+@pytest.mark.asyncio()
+async def test_administration_tools_require_explicit_oauth_scopes(oauth_env) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        workflow = (await oauth.grant(scope="workflows:read"))["access_token"]
+        admin_read = (await oauth.grant(scope="workspaces:read admin:tokens:read"))[
+            "access_token"
+        ]
+        for token, expected, forbidden in (
+            (
+                workflow,
+                {"list_workflows"},
+                {
+                    "list_workspaces",
+                    "list_service_tokens",
+                    "open_service_token_form",
+                    "create_workspace",
+                },
+            ),
+            (
+                admin_read,
+                {
+                    "list_workspaces",
+                    "get_workspace",
+                    "list_workspace_members",
+                    "list_service_tokens",
+                    "get_service_token",
+                },
+                {
+                    "create_workspace",
+                    "delete_workspace",
+                    "open_service_token_form",
+                    "create_service_token",
+                    "revoke_service_token",
+                },
+            ),
+        ):
+            listing = await _mcp(oauth.client, "tools/list", {}, token=token)
+            names = {t["name"] for t in listing.json()["result"]["tools"]}
+            assert expected <= names
+            assert forbidden.isdisjoint(names)
+            denied = await _mcp(
+                oauth.client,
+                "tools/call",
+                {
+                    "name": "create_workspace",
+                    "arguments": {"slug": "denied", "name": "Denied"},
+                },
+                token=token,
+            )
+            assert denied.json()["result"]["isError"]
+            assert "workspaces:write" in denied.text
+        allowed = (await oauth.grant(scope="workspaces:read workspaces:write"))[
+            "access_token"
+        ]
+        created = await _mcp(
+            oauth.client,
+            "tools/call",
+            {
+                "name": "create_workspace",
+                "arguments": {"slug": "oauth-owned", "name": "OAuth Owned"},
+            },
+            token=allowed,
+        )
+        assert not created.json()["result"].get("isError"), created.text
+        assert created.json()["result"]["structuredContent"]["slug"] == "oauth-owned"
+
+
+@pytest.mark.asyncio()
+async def test_service_token_form_binds_oauth_client_and_limits_minted_scopes(
+    oauth_env,
+    monkeypatch,
+) -> None:
+    import json
+    from importlib import import_module
+    from orcheo_backend.app.mcp_server.form_tokens import FORM_TOKEN_META_KEY
+    from orcheo_backend.app.mcp_server.service_token_tools import (
+        SERVICE_TOKEN_SECRET_META_KEY,
+    )
+    from orcheo_backend.app.authentication import ServiceTokenManager
+    from orcheo_backend.app.service_token_repository import (
+        InMemoryServiceTokenRepository,
+    )
+
+    manager = ServiceTokenManager(InMemoryServiceTokenRepository())
+    monkeypatch.setattr(
+        import_module("orcheo_backend.app.service_token_endpoints"),
+        "get_service_token_manager",
+        lambda: manager,
+    )
+
+    async with oauth_session(oauth_env) as oauth:
+        scope = "admin:tokens:read admin:tokens:write workflows:read"
+        access = (await oauth.grant(scope=scope))["access_token"]
+        other_client = (await oauth.grant(scope=scope))["access_token"]
+        read_only = (await oauth.grant(scope="admin:tokens:read"))["access_token"]
+
+        async def call(name, arguments, token=access):
+            response = await _mcp(
+                oauth.client,
+                "tools/call",
+                {"name": name, "arguments": arguments},
+                token=token,
+            )
+            assert response.status_code == 200
+            return response.json()["result"]
+
+        opened = await call("open_service_token_form", {"scopes": ["workflows:read"]})
+        assert not opened.get("isError"), opened
+        form_token = opened["_meta"][FORM_TOKEN_META_KEY]
+        arguments = {"form_token": form_token, "scopes": ["workflows:read"]}
+        wrong_client = await call("create_service_token", arguments, other_client)
+        assert wrong_client["isError"] and "different application" in json.dumps(
+            wrong_client
+        )
+        denied = await call("create_service_token", arguments, read_only)
+        assert denied["isError"] and "admin:tokens:write" in json.dumps(denied)
+        escalation = await call(
+            "create_service_token", {**arguments, "scopes": ["vault:write"]}
+        )
+        assert escalation["isError"] and "403" in json.dumps(escalation)
+        created = await call("create_service_token", arguments)
+        assert not created.get("isError"), created
+        secret = created["_meta"][SERVICE_TOKEN_SECRET_META_KEY]
+        assert secret not in json.dumps(
+            {k: v for k, v in created.items() if k != "_meta"}
+        )
+        token_id = created["structuredContent"]["identifier"]
+        read = await call("get_service_token", {"token_id": token_id}, read_only)
+        assert not read.get("isError")
+        assert secret not in json.dumps(read)
+        assert "secret_preview" not in read["structuredContent"]
+        # Even a grant for token management cannot bypass the private App over REST.
+        direct = await oauth.client.post(
+            "/api/admin/service-tokens",
+            json={"scopes": []},
+            headers={"Authorization": f"Bearer {access}"},
+        )
+        assert direct.status_code == 403

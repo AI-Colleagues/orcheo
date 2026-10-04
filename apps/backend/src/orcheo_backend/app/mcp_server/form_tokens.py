@@ -1,4 +1,4 @@
-"""Signed, short-lived tokens that tie credential writes to the MCP App form.
+"""Signed, short-lived capabilities binding writes to private MCP App forms.
 
 ``open_credential_form`` issues a token in the tool result's ``_meta``, which
 MCP hosts hand to the embedded app but never to the model. ``save_credential``
@@ -35,6 +35,9 @@ class CredentialForm:
     credential_id: str | None
     purpose: str = "credential"
     workflow_id: str | None = None
+    service_token_id: str | None = None
+    workspace_id: str | None = None
+    client_id: str | None = None
 
 
 def _key() -> bytes:
@@ -53,10 +56,10 @@ def _unb64(data: str) -> bytes:
 
 
 def issue_form_token(form: CredentialForm, *, now: float | None = None) -> str:
-    """Return a token authorizing credential form submissions until it expires.
+    """Return a token authorizing private form submissions until it expires.
 
     Tokens are stateless, so one can be replayed within its TTL; it only ever
-    reaches the form, and binds the caller, workspace and credential.
+    reaches the form, and binds the caller, workspace, purpose and target.
     """
     payload: dict[str, Any] = {
         "sub": form.subject,
@@ -64,6 +67,9 @@ def issue_form_token(form: CredentialForm, *, now: float | None = None) -> str:
         "cid": form.credential_id,
         "purpose": form.purpose,
         "wid": form.workflow_id,
+        "tid": form.service_token_id,
+        "workspace_id": form.workspace_id,
+        "client_id": form.client_id,
         "exp": int((now if now is not None else time.time()) + FORM_TOKEN_TTL_SECONDS),
     }
     body = _b64(json.dumps(payload, separators=(",", ":")).encode())
@@ -77,6 +83,7 @@ def verify_form_token(
     subject: str,
     now: float | None = None,
     purpose: str = "credential",
+    client_id: str | None = None,
 ) -> CredentialForm:
     """Return the form a token authorizes for ``subject``.
 
@@ -97,15 +104,20 @@ def verify_form_token(
             credential_id=payload["cid"],
             purpose=payload.get("purpose", "credential"),
             workflow_id=payload.get("wid"),
+            service_token_id=payload.get("tid"),
+            workspace_id=payload.get("workspace_id"),
+            client_id=payload.get("client_id"),
         )
     except (ValueError, KeyError, TypeError) as exc:
-        raise ToolError("This credential form is invalid. Open a new one.") from exc
+        raise ToolError("This form is invalid. Open a new one.") from exc
     if expires_at < (now if now is not None else time.time()):
-        raise ToolError("This credential form has expired. Open a new one.")
+        raise ToolError("This form has expired. Open a new one.")
     if form.subject != subject:
-        raise ToolError("This credential form was opened by a different user.")
+        raise ToolError("This form was opened by a different user.")
     if form.purpose != purpose:
         raise ToolError("This form token cannot be used for this operation.")
+    if form.client_id != client_id:
+        raise ToolError("This form was opened by a different application.")
     return form
 
 
