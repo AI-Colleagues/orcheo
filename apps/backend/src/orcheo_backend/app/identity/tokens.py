@@ -28,19 +28,15 @@ __all__ = [
 ]
 
 _REFRESH_TOKEN_BYTES = 32
+# Preserve workflow/vault access; new capabilities default to read-only.
 DEFAULT_USER_SCOPES: tuple[str, ...] = (
     "workflows:read",
     "workflows:write",
     "workflows:execute",
     "vault:read",
     "vault:write",
-    "apps:read",
-    "apps:write",
-    "apps:publish",
     "workspaces:read",
-    "workspaces:write",
     "admin:tokens:read",
-    "admin:tokens:write",
 )
 
 

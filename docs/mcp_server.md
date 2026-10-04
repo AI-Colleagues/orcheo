@@ -102,9 +102,6 @@ The client only sees and can call the tools its approved scopes cover:
 | `workflows:execute` | `run_workflow`, `cancel_run` |
 | `vault:read` | `list_credentials`, `check_workflow_credentials` (with `workflows:read`) |
 | `vault:write` | `open_credential_form`, `save_credential`, `delete_credential` |
-| `apps:read` | Hosted app metadata, deployments, collections and audit history; bindings also require `workflows:read` |
-| `apps:write` | Create and change hosted apps, upload bundles, and edit draft collections; saving bindings also requires `workflows:read` |
-| `apps:publish` | Publish and unpublish hosted apps; archive and restore also require `apps:write` |
 | `workspaces:read` | Workspace administration metadata, members, invitations and audit events |
 | `workspaces:write` | Workspace creation, lifecycle, membership and invitation changes |
 | `admin:tokens:read` | Service token metadata, without secrets or secret previews |
@@ -119,14 +116,17 @@ evaluator definitions can load Python entrypoints. Node execution requires
 and forms require `workflows:write`. Candidate installation and updates require
 `workflows:write`, while catalog reads require `workflows:read`.
 
-`apps:publish` is advertised as supported but excluded from default MCP client
-registrations. Clients that need publication must explicitly request that scope
-when registering, and the user must approve it on the consent screen. First-party
-Studio sessions retain publishing access.
+Default tokens and MCP client registrations retain workflow and vault access
+and add `workspaces:read` and `admin:tokens:read`. The supported scopes also
+include `workspaces:write` and `admin:tokens:write`, but clients must explicitly
+request them when registering and obtain user consent. Studio and CLI
+login/refresh tokens use the narrower defaults too. First-party operations
+still follow the API's existing workspace authorization; service token creation
+cannot delegate scopes absent from the caller's token.
 
 Existing OAuth grants do not gain new scopes automatically. Reconnect and
-approve the needed hosted-app, workspace or service-token access. Workspace
-roles still apply; a grant does not turn an editor into an administrator.
+approve the needed workspace or service-token access. Workspace roles still
+apply; a grant does not turn an editor into an administrator.
 
 The component catalog, workspace discovery (`list_my_workspaces` and
 `get_active_workspace`) and server-info tools need no scope. Service
@@ -302,30 +302,6 @@ reconnected to approve the new token-management scopes.
 | `list_candidates` | Read the official candidate catalog and release notes. |
 | `onboard_candidate` | Install a candidate into the selected workspace and optional team; re-onboarding appends a version. |
 | `update_candidate_workflow` | Upgrade an installed candidate from the server's catalog while preserving user configuration. |
-
-### Hosted web apps
-
-These tools use the Hosted Apps feature flag, workspace allowlist and role
-checks enforced by the REST API. Use `get_server_features` to check availability.
-
-| Tool | Description |
-|------|-------------|
-| `list_hosted_apps` / `get_hosted_app` | Read apps, current permission revisions and active deployments. Listing supports cursors. |
-| `create_hosted_app` / `update_hosted_app` | Create a draft with an alias, or update draft metadata. |
-| `archive_hosted_app` / `restore_hosted_app` | Disable or restore access while retaining the prior publication lifecycle. Restoring a published app can make it accessible again. |
-| `get_hosted_app_audit` | Read app mutation history. |
-| `list_hosted_app_bindings` / `save_hosted_app_binding` / `delete_hosted_app_binding` | Inspect, create, replace or remove draft workflow bindings. |
-| `list_hosted_app_collections` / `save_hosted_app_collection` / `delete_hosted_app_collection` | Manage app-data collection definitions and access rules. |
-| `list_hosted_app_deployments` | Read deployment validation status and errors. |
-| `upload_hosted_app_deployment` | Validate a base64-encoded static ZIP, capped at 10 MiB decoded. Requires `index.html` at the root. Does not publish it. |
-| `publish_hosted_app` / `unpublish_hosted_app` | Publish a validated deployment at an explicitly acknowledged permission revision, or withdraw it. |
-
-Before publishing, inspect the app, bindings and collections, then provide
-`review.acknowledged_permission_revision` from the reviewed app metadata. The
-backend rejects stale revisions. Bindings pin workflow versions and stored
-configuration. Uploads use the existing multipart API for filesystem/Postgres
-bundle storage; the production presigned-upload flow remains a backend
-limitation and is not bypassed by MCP.
 
 ### Interactive views (MCP Apps)
 

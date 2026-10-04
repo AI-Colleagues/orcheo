@@ -17,12 +17,13 @@ from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
 MCP_RESOURCE_PATH = "/api/mcp"
 OAUTH_PREFIX = "/api/oauth"
 PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
-SUPPORTED_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES
-# Publishing is available to first-party sessions, but third-party clients must
-# request it explicitly when registering and obtain the user's consent.
-DEFAULT_OAUTH_SCOPES: tuple[str, ...] = tuple(
-    scope for scope in SUPPORTED_SCOPES if scope != "apps:publish"
+SUPPORTED_SCOPES: tuple[str, ...] = (
+    *DEFAULT_USER_SCOPES,
+    "workspaces:write",
+    "admin:tokens:write",
 )
+# New mutating capabilities require an explicit request and user consent.
+DEFAULT_OAUTH_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES
 
 
 def _first_forwarded(value: str | None) -> str | None:

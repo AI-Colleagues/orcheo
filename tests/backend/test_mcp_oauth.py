@@ -129,7 +129,9 @@ class OAuthHarness:
 
     async def grant(self, **params: str) -> dict:
         """Run the whole flow for a new client and return its tokens."""
-        client = await self.register()
+        client = await self.register(
+            **({"scope": params["scope"]} if "scope" in params else {})
+        )
         verifier = _verifier()
         code = await self.authorize(client["client_id"], verifier, **params)
         issued = await self.token(
@@ -246,12 +248,8 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "workflows:execute",
             "vault:read",
             "vault:write",
-            "apps:read",
-            "apps:write",
             "workspaces:read",
-            "workspaces:write",
             "admin:tokens:read",
-            "admin:tokens:write",
         ]
         verifier = _verifier()
         code = await oauth.authorize(client["client_id"], verifier)
@@ -607,10 +605,9 @@ async def test_consent_names_custom_redirect_schemes(
 async def test_new_mcp_tools_require_their_approved_scopes(
     oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
 ) -> None:
-    """Workflow grants cannot mutate apps or use credential validation tools."""
+    """Workflow grants cannot use write tools or credential validation tools."""
     async with oauth_session(oauth_env) as oauth:
         read = (await oauth.grant(scope="workflows:read"))["access_token"]
-        app_read = (await oauth.grant(scope="apps:read"))["access_token"]
         listed = await _mcp(oauth.client, "tools/list", {}, token=read)
         names = {tool["name"] for tool in listed.json()["result"]["tools"]}
         assert {
@@ -625,31 +622,8 @@ async def test_new_mcp_tools_require_their_approved_scopes(
                 "validate_workflow_credentials",
                 "execute_node",
                 "evaluate_workflow",
-                "list_hosted_apps",
-                "publish_hosted_app",
             }
         )
-        listed_apps = await _mcp(oauth.client, "tools/list", {}, token=app_read)
-        app_names = {tool["name"] for tool in listed_apps.json()["result"]["tools"]}
-        assert {"list_hosted_apps", "list_hosted_app_deployments"} <= app_names
-        assert app_names.isdisjoint(
-            {"save_hosted_app_binding", "publish_hosted_app", "list_workflows"}
-        )
-        rejected = await _mcp(
-            oauth.client,
-            "tools/call",
-            {
-                "name": "publish_hosted_app",
-                "arguments": {
-                    "app_id": str(uuid4()),
-                    "deployment_id": str(uuid4()),
-                    "review": {"acknowledged_permission_revision": 1},
-                },
-            },
-            token=app_read,
-        )
-        assert rejected.json()["result"]["isError"]
-        assert "apps:publish" in rejected.text
 
 
 @pytest.mark.asyncio()
@@ -793,20 +767,31 @@ async def test_service_token_form_binds_oauth_client_and_limits_minted_scopes(
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize("explicit_publish", [False, True])
-async def test_publication_requires_explicit_client_scope(
+@pytest.mark.parametrize("explicit_scope", [False, True])
+@pytest.mark.parametrize(
+    ("scope", "tool"),
+    [
+        ("workspaces:write", "create_workspace"),
+        ("admin:tokens:write", "open_service_token_form"),
+    ],
+)
+async def test_mutating_capabilities_require_explicit_client_scope(
     oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
-    explicit_publish: bool,
+    explicit_scope: bool,
+    scope: str,
+    tool: str,
 ) -> None:
     async with oauth_session(oauth_env) as oauth:
         from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
 
-        assert "apps:publish" in DEFAULT_USER_SCOPES
+        assert scope not in DEFAULT_USER_SCOPES
         metadata = (
             await oauth.client.get("/.well-known/oauth-authorization-server/api/oauth")
         ).json()
-        assert "apps:publish" in metadata["scopes_supported"]
-        registration = {"scope": "apps:read apps:publish"} if explicit_publish else {}
+        assert scope in metadata["scopes_supported"]
+        registration = (
+            {"scope": " ".join((*DEFAULT_USER_SCOPES, scope))} if explicit_scope else {}
+        )
         client = await oauth.register(**registration)
         verifier = _verifier()
         started = await oauth.start(client["client_id"], verifier)
@@ -816,7 +801,7 @@ async def test_publication_requires_explicit_client_scope(
             f"/api/oauth/requests/{request_id}",
             headers={"Authorization": f"Bearer {oauth.studio_token()}"},
         )
-        assert ("apps:publish" in consent.json()["scopes"]) is explicit_publish
+        assert (scope in consent.json()["scopes"]) is explicit_scope
         redirect = await oauth.consent(started.headers["location"])
         code = parse_qs(urlparse(redirect).query)["code"][0]
         issued = await oauth.token(
@@ -827,9 +812,26 @@ async def test_publication_requires_explicit_client_scope(
             code_verifier=verifier,
         )
         assert issued.status_code == 200, issued.text
-        assert ("apps:publish" in issued.json()["scope"].split()) is explicit_publish
+        assert (scope in issued.json()["scope"].split()) is explicit_scope
         result = await _mcp(
             oauth.client, "tools/list", {}, issued.json()["access_token"]
         )
         names = {tool["name"] for tool in result.json()["result"]["tools"]}
-        assert ("publish_hosted_app" in names) is explicit_publish
+        assert (tool in names) is explicit_scope
+        refreshed = await oauth.token(
+            grant_type="refresh_token",
+            refresh_token=issued.json()["refresh_token"],
+            client_id=client["client_id"],
+        )
+        assert refreshed.status_code == 200, refreshed.text
+        assert (scope in refreshed.json()["scope"].split()) is explicit_scope
+        if not explicit_scope:
+            denied = await _mcp(
+                oauth.client,
+                "tools/call",
+                {"name": tool, "arguments": {}},
+                refreshed.json()["access_token"],
+            )
+            result = denied.json()["result"]
+            assert result["isError"]
+            assert f"not granted {scope}" in str(result)
