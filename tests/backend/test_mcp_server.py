@@ -255,3 +255,32 @@ async def test_every_tool_declares_its_oauth_scopes() -> None:
         "list_components",
         "list_my_workspaces",
     }
+
+
+@pytest.mark.asyncio
+async def test_client_uploads_multipart_bundle_and_reports_errors() -> None:
+    app = FastAPI()
+
+    @app.post("/upload")
+    async def upload(request: Request) -> dict[str, Any]:
+        async with request.form() as form:
+            bundle = form["bundle"]
+            return {
+                "filename": bundle.filename,
+                "content_type": bundle.content_type,
+                "content": (await bundle.read()).decode(),
+            }
+
+    async with InProcessApiClient(_incoming_request(app)) as api:
+        result = await api.upload("/upload", bundle=b"test bundle")
+        with pytest.raises(McpApiError) as excinfo:
+            await api.upload("/missing", bundle=b"test bundle")
+
+    assert result == {
+        "filename": "bundle.zip",
+        "content_type": "application/zip",
+        "content": "test bundle",
+    }
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.method == "POST"
+    assert excinfo.value.detail == "Not Found"

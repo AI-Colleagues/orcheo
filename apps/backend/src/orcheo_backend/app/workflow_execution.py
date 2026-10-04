@@ -56,7 +56,7 @@ class JsonEventSink(Protocol):
 
     async def send_json(self, data: Any, mode: str = "text") -> None:
         """Receive one JSON execution event."""
-        ...
+        ...  # pragma: no cover - protocol declaration, not an implementation
 
 
 logger = logging.getLogger(__name__)

@@ -214,3 +214,64 @@ async def test_tokens_and_forms_stay_in_their_workspace(api_client: TestClient) 
                 "reason": "Finished",
             },
         )
+
+
+@pytest.mark.parametrize("anonymous", [False, True])
+def test_service_token_form_requires_authenticated_caller(
+    monkeypatch: pytest.MonkeyPatch, anonymous: bool
+) -> None:
+    from types import SimpleNamespace
+    from fastmcp.exceptions import ToolError
+    from orcheo_backend.app.authentication import (
+        PREAUTHENTICATED_SCOPE_KEY,
+        RequestContext,
+    )
+    from orcheo_backend.app.mcp_server import service_token_tools
+
+    scope = (
+        {PREAUTHENTICATED_SCOPE_KEY: RequestContext.anonymous()} if anonymous else {}
+    )
+    monkeypatch.setattr(
+        service_token_tools, "get_http_request", lambda: SimpleNamespace(scope=scope)
+    )
+    with pytest.raises(ToolError, match="Sign in to manage service tokens"):
+        service_token_tools._caller()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("secret", [None, "", 123])
+async def test_create_service_token_rejects_missing_secret(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch, secret: object
+) -> None:
+    from unittest.mock import AsyncMock
+    from orcheo_backend.app.mcp_server.api_client import InProcessApiClient
+
+    async with mcp_session(api_client.app) as mcp:
+        opened = await mcp.call_result("open_service_token_form")
+        post = AsyncMock(return_value={"identifier": "incomplete", "secret": secret})
+        monkeypatch.setattr(InProcessApiClient, "post", post)
+        error = await mcp.call_error(
+            "create_service_token",
+            {"form_token": opened["_meta"][FORM_TOKEN_META_KEY], "scopes": []},
+        )
+    assert "The server did not return a new token secret" in error
+    post.assert_awaited_once_with(
+        "/api/admin/service-tokens",
+        json_body={"name": None, "scopes": [], "expires_in_seconds": None},
+    )
+
+
+@pytest.mark.asyncio
+async def test_revoke_form_requires_bound_service_token(api_client: TestClient) -> None:
+    async with mcp_session(api_client.app) as mcp:
+        opened = await mcp.call_result("open_service_token_form")
+        form = verify_form_token(
+            opened["_meta"][FORM_TOKEN_META_KEY],
+            subject="anonymous",
+            purpose="service_token_create",
+        )
+        token = issue_form_token(replace(form, purpose="service_token_revoke"))
+        error = await mcp.call_error(
+            "revoke_service_token", {"form_token": token, "reason": "Replaced"}
+        )
+    assert "This form has no service token to revoke" in error

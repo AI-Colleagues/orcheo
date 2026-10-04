@@ -57,6 +57,10 @@ async def test_workflow_config_metadata_and_version_diff(
             "update_workflow",
             {"workflow": wid, "clear_chatkit_start_screen_prompts": True},
         )
+        models_cleared = await mcp.call(
+            "update_workflow",
+            {"workflow": wid, "clear_chatkit_supported_models": True},
+        )
         diff = await mcp.call(
             "diff_workflow_versions",
             {"workflow": wid, "base_version": 1, "target_version": 2},
@@ -68,6 +72,7 @@ async def test_workflow_config_metadata_and_version_diff(
     assert updated["chatkit"]["supported_models"][0]["id"] == "test-model"
     assert cleared["chatkit"]["start_screen_prompts"] is None
     assert cleared["chatkit"]["supported_models"][0]["id"] == "test-model"
+    assert models_cleared["chatkit"] is None
     assert (diff["base_version"], diff["target_version"]) == (1, 2)
 
 
@@ -440,6 +445,7 @@ async def test_new_workflow_tools_enforce_workspace_boundary(
             ("configure_webhook", {"settings": {"allowed_methods": ["POST"]}}),
             ("list_workflow_executions", {}),
             ("get_workflow_credential_health", {}),
+            ("validate_workflow_credentials", {}),
             ("get_workflow_listener_metrics", {}),
             (
                 "evaluate_workflow",
@@ -469,7 +475,7 @@ async def test_evaluation_executes_and_records_history(
     @asynccontextmanager
     async def checkpointer(_settings: Any) -> AsyncIterator[MemorySaver]:
         if outcome == "setup_timeout":
-            await asyncio.sleep(2)
+            await asyncio.Event().wait()
         if outcome == "setup_failure":
             raise RuntimeError("provider-secret-must-not-leak")
         yield MemorySaver()
@@ -484,7 +490,7 @@ async def test_evaluation_executes_and_records_history(
         from orcheo_backend.app.workflow_execution import AgentensorNode
 
         async def slow_node(*args: Any, **kwargs: Any) -> None:
-            await asyncio.sleep(2)
+            await asyncio.Event().wait()
 
         monkeypatch.setattr(AgentensorNode, "__call__", slow_node)
     async with mcp_session(api_client.app) as mcp:
@@ -500,7 +506,9 @@ async def test_evaluation_executes_and_records_history(
         args = {
             "workflow": wid,
             "evaluation": {"dataset": {"cases": [{"inputs": {"topic": "test"}}]}},
-            "timeout_seconds": 1,
+            # Only cancellation cases need a short deadline. Real graph setup can
+            # take longer than a second under coverage on shared CI runners.
+            "timeout_seconds": 1 if outcome.endswith("_timeout") else 60,
         }
         if outcome == "success":
             result = await mcp.call("evaluate_workflow", args)
@@ -562,3 +570,42 @@ async def test_webhook_form_rejects_invalid_changes_without_echoing_secrets(
     assert "Invalid webhook authentication changes" in error
     assert "private-value" not in error
     assert before == after
+
+
+@pytest.mark.asyncio
+async def test_evaluation_rejects_missing_version(api_client: TestClient) -> None:
+    async with mcp_session(api_client.app) as mcp:
+        created = await mcp.call(
+            "upload_workflow", {"name": "Eval", "script": SIMPLE_SCRIPT}
+        )
+        error = await mcp.call_error(
+            "evaluate_workflow",
+            {
+                "workflow": created["workflow"]["id"],
+                "version": 99,
+                "evaluation": {"dataset": {"cases": [{"inputs": {}}]}},
+            },
+        )
+        runs = await mcp.call(
+            "list_workflow_executions", {"workflow": created["workflow"]["id"]}
+        )
+    assert "HTTP 404" in error
+    assert "Workflow version not found" in error
+    assert runs["executions"] == []
+
+
+@pytest.mark.asyncio
+async def test_webhook_form_requires_bound_workflow(api_client: TestClient) -> None:
+    token = issue_form_token(
+        CredentialForm(
+            subject="anonymous",
+            workspace="default",
+            credential_id=None,
+            purpose="webhook",
+        )
+    )
+    async with mcp_session(api_client.app) as mcp:
+        error = await mcp.call_error(
+            "save_webhook_config", {"form_token": token, "changes": {}}
+        )
+    assert "Open a new webhook form" in error
