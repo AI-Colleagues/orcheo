@@ -683,8 +683,22 @@ async def test_postgres_store_list_histories(
                 },
             ]
         },
-        {"rows": []},  # _fetch_steps for exec-1
-        {"rows": []},  # _fetch_steps for exec-2
+        {  # Steps for both executions in a single query
+            "rows": [
+                {
+                    "execution_id": "exec-1",
+                    "step_index": 0,
+                    "at": now,
+                    "payload": json.dumps({"node": {"status": "ok"}}),
+                },
+                {
+                    "execution_id": "exec-1",
+                    "step_index": 1,
+                    "at": now,
+                    "payload": json.dumps({"next": {"status": "ok"}}),
+                },
+            ]
+        },
     ]
     store = make_store(monkeypatch, responses)
 
@@ -692,7 +706,61 @@ async def test_postgres_store_list_histories(
 
     assert len(records) == 2
     assert records[0].execution_id == "exec-1"
+    assert [step.index for step in records[0].steps] == [0, 1]
     assert records[1].execution_id == "exec-2"
+    assert records[1].steps == []
+    conn = store._pool._connection  # type: ignore[union-attr]
+    assert len(conn.queries) == 2
+    assert "ANY(%s)" in conn.queries[1][0]
+    assert conn.queries[1][1] == (["exec-1", "exec-2"],)
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_list_histories_skips_steps_query_when_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No step query is issued when the workflow has no histories."""
+    store = make_store(monkeypatch, [{"rows": []}])
+
+    records = await store.list_histories(workflow_id="wf-123")
+
+    assert records == []
+    conn = store._pool._connection  # type: ignore[union-attr]
+    assert len(conn.queries) == 1
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_list_histories_without_steps(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Summary listings skip the step query entirely."""
+    now = datetime.now(tz=UTC).isoformat()
+    row = {
+        "execution_id": "exec-1",
+        "workflow_id": "wf-123",
+        "inputs": json.dumps({}),
+        "runnable_config": json.dumps({}),
+        "tags": json.dumps([]),
+        "callbacks": json.dumps([]),
+        "metadata": json.dumps({}),
+        "run_name": None,
+        "status": "completed",
+        "started_at": now,
+        "completed_at": now,
+        "error": None,
+        "trace_id": None,
+        "trace_started_at": now,
+        "trace_completed_at": now,
+        "trace_last_span_at": now,
+    }
+    store = make_store(monkeypatch, [{"rows": [row]}])
+
+    records = await store.list_histories(workflow_id="wf-123", include_steps=False)
+
+    assert [record.execution_id for record in records] == ["exec-1"]
+    assert records[0].steps == []
+    conn = store._pool._connection  # type: ignore[union-attr]
+    assert len(conn.queries) == 1
 
 
 @pytest.mark.asyncio

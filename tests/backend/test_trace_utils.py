@@ -9,7 +9,11 @@ from orcheo.tracing.model_metadata import encode_step_namespace
 from orcheo_backend.app import trace_utils
 from orcheo_backend.app.history.models import RunHistoryRecord, RunHistoryStep
 from orcheo_backend.app.schemas.traces import TraceSpanResponse
-from orcheo_backend.app.trace_utils import build_trace_response, build_trace_update
+from orcheo_backend.app.trace_utils import (
+    build_span_state,
+    build_trace_response,
+    build_trace_update,
+)
 
 
 def _timestamp(offset_seconds: int = 0) -> datetime:
@@ -78,12 +82,21 @@ def test_build_trace_response_emits_span_metadata() -> None:
     assert node_span.attributes["orcheo.token.output"] == 7
     assert node_span.attributes["orcheo.artifact.ids"] == ["artifact-1"]
     assert node_span.attributes["orcheo.workspace.id"] == "workspace-1"
-    assert "orcheo.workflow.state.before" in node_span.attributes
-    assert "orcheo.workflow.state.after" in node_span.attributes
-    assert node_span.attributes["orcheo.workflow.state.before"]["inputs"] == {}
-    assert node_span.attributes["orcheo.workflow.state.after"]["id"] == "node-1"
-    assert "__trace" not in node_span.attributes["orcheo.workflow.state.after"]
+    assert "orcheo.workflow.state.before" not in node_span.attributes
+    assert "orcheo.workflow.state.after" not in node_span.attributes
+    node_output = node_span.attributes["orcheo.node.output"]
+    assert node_output["id"] == "node-1"
+    assert node_output["responses"] == ["World"]
+    assert "__trace" not in node_output
     assert node_span.status.code == "OK"
+
+    state = build_span_state(record, node_span.span_id)
+    assert state is not None
+    assert state.span_id == node_span.span_id
+    assert state.before["inputs"] == {}
+    assert "id" not in state.before
+    assert state.after["id"] == "node-1"
+    assert "__trace" not in state.after
 
 
 def test_build_trace_response_uses_root_span_id_when_trace_id_missing() -> None:
@@ -344,8 +357,6 @@ def test_build_spans_for_step_skips_none_results(
         node_key: str,
         payload: dict[str, Any],
         parent_id: str,
-        *,
-        state_snapshot: Any = None,
     ) -> TraceSpanResponse | None:
         if node_key == "node-a":
             return None
@@ -446,7 +457,7 @@ def test_build_trace_response_includes_execution_attributes() -> None:
     assert attributes["orcheo.execution.prompts.count"] == 1
 
 
-def test_build_trace_response_redacts_and_truncates_workflow_state() -> None:
+def test_build_span_state_redacts_and_truncates_workflow_state() -> None:
     """Workflow snapshots redact sensitive keys and truncate long values."""
 
     record = RunHistoryRecord(
@@ -470,14 +481,59 @@ def test_build_trace_response_redacts_and_truncates_workflow_state() -> None:
     response = build_trace_response(record)
     node_span = response.spans[1]
 
-    before_state = node_span.attributes["orcheo.workflow.state.before"]
-    after_state = node_span.attributes["orcheo.workflow.state.after"]
-    assert before_state["api_key"] == "[REDACTED]"
-    assert after_state["nested"]["session_token"] == "[REDACTED]"
-    assert node_span.attributes["orcheo.workflow.state.redacted"] is True
-    assert node_span.attributes["orcheo.workflow.state.truncated"] is True
-    assert isinstance(after_state["result"], str)
-    assert len(after_state["result"]) <= 2049
+    node_output = node_span.attributes["orcheo.node.output"]
+    assert node_output["nested"]["session_token"] == "[REDACTED]"
+    assert len(node_output["result"]) <= 2049
+
+    state = build_span_state(record, node_span.span_id)
+    assert state is not None
+    assert state.before["api_key"] == "[REDACTED]"
+    assert state.after["nested"]["session_token"] == "[REDACTED]"
+    assert state.redacted is True
+    assert state.truncated is True
+    assert isinstance(state.after["result"], str)
+    assert len(state.after["result"]) <= 2049
+
+
+def test_build_span_state_folds_prior_steps_and_stops_at_target() -> None:
+    """State before a span reflects earlier updates only; later ones are ignored."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-state",
+        execution_id="exec-state",
+        status="completed",
+        inputs={"query": "hi"},
+    )
+    record.append_step(
+        {"first": {"results": {"first": 1}}, "__namespace": ["ignored"]},
+        at=_timestamp(),
+    )
+    record.append_step({"second": {"results": {"second": 2}}}, at=_timestamp(1))
+    record.append_step({"third": {"results": {"third": 3}}}, at=_timestamp(2))
+
+    spans = build_trace_response(record).spans
+    second_span = next(span for span in spans if span.name == "second")
+
+    state = build_span_state(record, second_span.span_id)
+
+    assert state is not None
+    assert state.before["results"] == {"first": 1}
+    assert state.after["results"] == {"first": 1, "second": 2}
+    assert state.redacted is False
+    assert state.truncated is False
+
+
+def test_build_span_state_returns_none_for_unknown_span() -> None:
+    """Root, container, or foreign span ids have no node state."""
+
+    record = RunHistoryRecord(
+        workflow_id="wf-state", execution_id="exec-state", status="completed"
+    )
+    record.append_step({"node": {"status": "completed"}}, at=_timestamp())
+    root_span = build_trace_response(record).spans[0]
+
+    assert build_span_state(record, root_span.span_id) is None
+    assert build_span_state(record, "does-not-exist") is None
 
 
 def test_extract_runtime_thread_id_requires_string() -> None:

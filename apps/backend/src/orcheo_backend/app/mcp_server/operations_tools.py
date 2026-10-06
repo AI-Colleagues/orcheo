@@ -104,7 +104,8 @@ def _register_history_tools(server: FastMCP) -> None:
         """List recorded executions, including streaming and evaluation runs."""
         async with api_client(workspace) as api:
             histories = await api.get(
-                f"/api/workflows/{workflow}/executions", params={"limit": limit}
+                f"/api/workflows/{workflow}/executions",
+                params={"limit": limit, "include_steps": "false"},
             )
         # Full step payloads can be large; fetch them with get_execution_history.
         return {

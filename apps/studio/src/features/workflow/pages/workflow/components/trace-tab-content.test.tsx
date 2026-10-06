@@ -218,4 +218,61 @@ describe("TraceTabContent", () => {
       "exec-2",
     );
   });
+
+  it("loads every trace when the stitched timeline is turned on", async () => {
+    const user = userEvent.setup();
+    const onLoadAllTraces = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <TraceTabContent
+        {...createProps({
+          viewerData: [sampleViewerData, sampleViewerData2],
+          onLoadAllTraces,
+        })}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /stitched: off/i }));
+    expect(onLoadAllTraces).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: /stitched: on/i }));
+    expect(onLoadAllTraces).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a loading skeleton instead of the empty state while fetching", () => {
+    render(
+      <TraceTabContent
+        {...createProps({
+          viewerData: [],
+          activeViewer: undefined,
+          status: "loading",
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("trace-loading-state")).toBeInTheDocument();
+    expect(screen.queryByTestId("trace-empty-state")).not.toBeInTheDocument();
+  });
+
+  it("selects the active execution before its spans have loaded", () => {
+    const placeholder: TraceViewerData = {
+      ...sampleViewerData2,
+      spans: [],
+      loadStatus: "loading",
+    };
+
+    render(
+      <TraceTabContent
+        {...createProps({
+          viewerData: [placeholder, sampleViewerData],
+          activeViewer: undefined,
+          activeExecutionId: "exec-2",
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("trace-viewer-active-id")).toHaveTextContent(
+      "exec-2",
+    );
+  });
 });

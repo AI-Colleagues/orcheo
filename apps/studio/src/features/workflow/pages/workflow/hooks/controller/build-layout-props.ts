@@ -101,8 +101,12 @@ export function buildWorkflowLayoutProps(
     error: execution.trace.error,
     viewerData: execution.trace.viewerData,
     activeViewer: execution.trace.activeTraceViewer,
+    activeExecutionId: core.execution.activeExecutionId ?? undefined,
     onRefresh: () => execution.trace.refresh(),
     isRefreshing: execution.trace.isRefreshing,
+    status: execution.trace.status,
+    onLoadAllTraces: execution.trace.loadAll,
+    loadSpanState: execution.trace.loadSpanState,
     onSelectTrace: (traceId) => core.execution.setActiveExecutionId(traceId),
   };
 

@@ -12,12 +12,13 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.types import Scope
+from starlette.types import ASGIApp, Receive, Scope, Send
 from orcheo.agentensor.checkpoints import AgentensorCheckpointStore
 from orcheo.plugins import load_enabled_plugins
 from orcheo.vault.oauth import OAuthCredentialService
@@ -162,6 +163,27 @@ def _accepts_gzip(scope: Scope) -> bool:
                     quality = 0.0
         encodings[name] = quality
     return encodings.get("gzip", encodings.get("*", 0.0)) > 0
+
+
+class _ApiGZipMiddleware:
+    """Gzip REST API responses such as execution traces and run histories.
+
+    These are large, repetitive JSON payloads. Compression is scoped to the
+    REST API: internal routes stream raw bytes to the app gateway, Studio
+    assets are pre-compressed, and the MCP endpoint is left untouched.
+    Starlette already skips ``text/event-stream`` and compressed media types.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+        self._gzip = GZipMiddleware(app, minimum_size=1024)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        path = scope.get("path", "") if scope["type"] == "http" else ""
+        if path.startswith("/api/") and not path.startswith("/api/mcp"):
+            await self._gzip(scope, receive, send)
+            return
+        await self._app(scope, receive, send)
 
 
 class _StudioStaticFiles(StaticFiles):
@@ -446,6 +468,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    application.add_middleware(_ApiGZipMiddleware)
     _configure_dependency_overrides(
         application,
         repository,

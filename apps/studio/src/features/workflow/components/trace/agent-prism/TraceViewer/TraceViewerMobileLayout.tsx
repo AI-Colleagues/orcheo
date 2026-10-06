@@ -4,6 +4,7 @@ import { Button } from "../Button";
 import { DetailsView } from "../DetailsView/DetailsView";
 import { TraceList } from "../TraceList/TraceList";
 import { type TraceViewerLayoutProps } from "../TraceViewer/TraceViewer";
+import { isTraceLoadPending } from "./traceLoadStatus";
 import { TraceViewerTreeViewContainer } from "./TraceViewerTreeViewContainer";
 
 export const TraceViewerMobileLayout = ({
@@ -52,7 +53,8 @@ export const TraceViewerMobileLayout = ({
   if (
     selectedTrace &&
     selectedTraceId &&
-    filteredSpans.length > 0 &&
+    (filteredSpans.length > 0 ||
+      isTraceLoadPending(selectedTrace.loadStatus)) &&
     !selectedSpan
   ) {
     return (

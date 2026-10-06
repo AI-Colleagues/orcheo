@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 import { getAccessToken } from "@features/auth/lib/auth-session";
 import {
@@ -40,8 +40,16 @@ export function useWorkflowExecutionController(
     isMountedRef: core.isMountedRef,
   });
 
-  const executionIds = core.execution.executions.map(
-    (execution) => execution.id,
+  const executions = core.execution.executions;
+  const traceExecutions = useMemo(
+    () =>
+      executions.map((execution) => ({
+        id: execution.id,
+        status: execution.status,
+        startTime: execution.startTime,
+        endTime: execution.endTime,
+      })),
+    [executions],
   );
 
   const trace = useExecutionTrace({
@@ -49,7 +57,7 @@ export function useWorkflowExecutionController(
     workflowId: core.metadata.currentWorkflowId,
     activeExecutionId: core.execution.activeExecutionId,
     isMountedRef: core.isMountedRef,
-    executionIds,
+    executions: traceExecutions,
     enabled: core.ui.activeTab === "trace",
   });
 

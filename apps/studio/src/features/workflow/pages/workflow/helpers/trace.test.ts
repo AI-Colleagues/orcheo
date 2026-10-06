@@ -5,6 +5,8 @@ import {
   buildTraceViewerData,
   createEmptyTraceEntry,
   deriveThreadStitchedViewerDataList,
+  deriveViewerDataList,
+  markTraceLoading,
   type TraceResponse,
 } from "./trace";
 
@@ -21,10 +23,6 @@ const traceResponse: TraceResponse = {
       name: "node-1",
       attributes: {
         "orcheo.node.id": "node-1",
-        "orcheo.workflow.state.before": { count: 1 },
-        "orcheo.workflow.state.after": { count: 2, result: "ok" },
-        "orcheo.workflow.state.redacted": true,
-        "orcheo.workflow.state.truncated": true,
       },
       events: [],
       status: { code: "OK" },
@@ -34,37 +32,95 @@ const traceResponse: TraceResponse = {
 };
 
 describe("trace helpers", () => {
-  it("extracts workflow state metadata from span attributes", () => {
-    const entry = applyTraceResponse(
-      createEmptyTraceEntry("exec-1"),
-      traceResponse,
-    );
-    const metadata = entry.spanMetadata["span-1"];
+  it("marks node spans as able to load workflow state on demand", () => {
+    const entry = applyTraceResponse(createEmptyTraceEntry("exec-1"), {
+      ...traceResponse,
+      spans: [
+        ...traceResponse.spans,
+        {
+          span_id: "root",
+          name: "workflow.execution",
+          attributes: {},
+          status: { code: "OK" },
+        },
+      ],
+    });
 
-    expect(metadata?.workflowStateBefore).toEqual({ count: 1 });
-    expect(metadata?.workflowStateAfter).toEqual({ count: 2, result: "ok" });
-    expect(metadata?.workflowStateRedacted).toBe(true);
-    expect(metadata?.workflowStateTruncated).toBe(true);
+    expect(entry.spanMetadata["span-1"]).toMatchObject({
+      executionId: "exec-1",
+      nodeId: "node-1",
+      hasWorkflowState: true,
+    });
+    expect(entry.spanMetadata["root"]?.hasWorkflowState).toBeUndefined();
   });
 
-  it("attaches workflow state metadata to rendered trace spans", () => {
+  it("attaches execution id metadata to rendered trace spans", () => {
     const entry = applyTraceResponse(
       createEmptyTraceEntry("exec-1"),
       traceResponse,
     );
     const viewer = buildTraceViewerData(entry);
-    const spanMetadata = viewer?.spans[0]?.metadata as
-      | {
-          workflowStateBefore?: unknown;
-          workflowStateAfter?: unknown;
-        }
-      | undefined;
 
-    expect(spanMetadata?.workflowStateBefore).toEqual({ count: 1 });
-    expect(spanMetadata?.workflowStateAfter).toEqual({
-      count: 2,
-      result: "ok",
+    expect(viewer?.loadStatus).toBe("ready");
+    expect(viewer?.spans[0]?.metadata).toMatchObject({
+      executionId: "exec-1",
+      hasWorkflowState: true,
     });
+  });
+
+  it("lists executions whose traces are not loaded as placeholders", () => {
+    const loaded = applyTraceResponse(createEmptyTraceEntry("exec-1"), {
+      ...traceResponse,
+      execution: {
+        ...traceResponse.execution,
+        started_at: "2024-01-01T12:00:00Z",
+      },
+    });
+    const loading = markTraceLoading(createEmptyTraceEntry("exec-2"));
+
+    const viewerData = deriveViewerDataList(
+      { "exec-1": loaded, "exec-2": loading },
+      {},
+      [
+        { id: "exec-1", status: "success", startTime: "2024-01-01T12:00:00Z" },
+        {
+          id: "exec-2",
+          status: "running",
+          startTime: "2024-01-01T12:05:00Z",
+        },
+        {
+          id: "exec-3",
+          status: "failed",
+          startTime: "2024-01-01T11:00:00Z",
+          endTime: "2024-01-01T11:00:02Z",
+        },
+      ],
+    );
+
+    expect(viewerData.map((item) => item.traceRecord.id)).toEqual([
+      "exec-2",
+      "exec-1",
+      "exec-3",
+    ]);
+    expect(viewerData.map((item) => item.loadStatus)).toEqual([
+      "loading",
+      "ready",
+      "idle",
+    ]);
+    const placeholder = viewerData[2];
+    expect(placeholder?.spans).toEqual([]);
+    expect(placeholder?.traceRecord.durationMs).toBe(2000);
+    expect(placeholder?.badges).toEqual([{ label: "Status: failed" }]);
+  });
+
+  it("keeps a loading execution missing from the summaries listed", () => {
+    const viewerData = deriveViewerDataList({
+      "exec-new": markTraceLoading(createEmptyTraceEntry("exec-new")),
+      "exec-idle": createEmptyTraceEntry("exec-idle"),
+    });
+
+    expect(viewerData.map((item) => item.traceRecord.id)).toEqual(["exec-new"]);
+    expect(viewerData[0]?.loadStatus).toBe("loading");
   });
 
   it("exposes thread id on viewer data when metadata includes thread_id", () => {

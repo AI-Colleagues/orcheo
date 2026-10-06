@@ -27,8 +27,10 @@ export const loadWorkflowExecutions = async (
   }
 
   const limit = options.limit ?? 50;
+  // Summaries only: step payloads are large and the run list never renders
+  // them for past runs. Live runs build their logs from websocket updates.
   const url = buildBackendHttpUrl(
-    `/api/workflows/${workflowId}/executions?limit=${encodeURIComponent(String(limit))}`,
+    `/api/workflows/${workflowId}/executions?limit=${encodeURIComponent(String(limit))}&include_steps=false`,
     options.backendBaseUrl,
   );
 

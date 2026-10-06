@@ -43,7 +43,12 @@ async def test_list_workflow_execution_histories_returns_records() -> None:
 
     class HistoryStore:
         async def list_histories(
-            self, workflow_id: str, *, limit: int, workspace_id: str | None = None
+            self,
+            workflow_id: str,
+            *,
+            limit: int,
+            workspace_id: str | None = None,
+            include_steps: bool = True,
         ):
             return [
                 RunHistoryRecord(
@@ -81,7 +86,12 @@ async def test_list_workflow_execution_histories_respects_limit() -> None:
 
     class HistoryStore:
         async def list_histories(
-            self, workflow_id: str, *, limit: int, workspace_id: str | None = None
+            self,
+            workflow_id: str,
+            *,
+            limit: int,
+            workspace_id: str | None = None,
+            include_steps: bool = True,
         ):
             nonlocal limit_value
             limit_value = limit

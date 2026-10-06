@@ -12,7 +12,10 @@ import { useIsMobile } from "../shared";
 import { type SpanCardViewOptions } from "../SpanCard/SpanCard";
 import { TraceViewerDesktopLayout } from "./TraceViewerDesktopLayout";
 import { TraceViewerMobileLayout } from "./TraceViewerMobileLayout";
+import type { TraceLoadStatus } from "./traceLoadStatus";
 import { useTraceSelection } from "./useTraceSelection";
+
+export type { TraceLoadStatus } from "./traceLoadStatus";
 
 export interface TraceViewerData {
   traceRecord: TraceRecord;
@@ -20,6 +23,7 @@ export interface TraceViewerData {
   spans: TraceSpan[];
   spanCardViewOptions?: SpanCardViewOptions;
   threadId?: string;
+  loadStatus?: TraceLoadStatus;
 }
 
 export interface TraceViewerProps {
@@ -72,6 +76,7 @@ export const TraceViewer = ({
       ...item.traceRecord,
       badges: item.badges,
       spanCardViewOptions: item.spanCardViewOptions,
+      loadStatus: item.loadStatus,
     }));
   }, [data]);
 
@@ -184,6 +189,7 @@ export const TraceViewer = ({
 export interface TraceRecordWithDisplayData extends TraceRecord {
   spanCardViewOptions?: SpanCardViewOptions;
   badges?: BadgeProps[];
+  loadStatus?: TraceLoadStatus;
 }
 
 export interface TraceViewerLayoutProps {

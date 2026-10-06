@@ -61,6 +61,13 @@ reconfigured.
 
 The Trace tab streams updates for active runs via WebSocket messages. Closed runs load
 from the `/executions/{execution_id}/trace` endpoint and respect collector pagination.
+Only the selected run's trace is fetched; other runs in the list load when selected
+(or all at once when the stitched timeline is enabled).
+
+Each node span carries its own sanitized update as `orcheo.node.output`. The full
+workflow state before and after a node is not embedded in the trace; the span detail
+panel fetches it on demand from
+`/executions/{execution_id}/trace/spans/{span_id}/state`.
 
 ## Installing the OpenTelemetry Collector
 

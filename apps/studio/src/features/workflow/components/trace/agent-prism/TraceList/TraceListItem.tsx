@@ -6,6 +6,7 @@ import { useCallback } from "react";
 
 import type { AvatarProps } from "../Avatar";
 import type { BadgeProps } from "../Badge";
+import type { TraceLoadStatus } from "../TraceViewer/TraceViewer";
 
 import { Badge } from "../Badge";
 import { PriceBadge } from "../PriceBadge";
@@ -14,7 +15,7 @@ import { TokensBadge } from "../TokensBadge";
 import { TraceListItemHeader } from "./TraceListItemHeader";
 
 interface TraceListItemProps {
-  trace: TraceRecord;
+  trace: TraceRecord & { loadStatus?: TraceLoadStatus };
   badges?: Array<BadgeProps>;
   avatar?: AvatarProps;
   onClick?: () => void;
