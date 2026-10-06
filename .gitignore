@@ -193,6 +193,11 @@ checkpoints.sqlite
 # Plugin packages managed as independent projects
 packages/plugins/
 
+# Local companion repositories
+/agent-skills/
+/colleague-candidates/
+/orcheo-design-system/
+
 # Miscellaneous
 *.pem
 orcheo-homepage/

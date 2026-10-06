@@ -44,9 +44,11 @@ repository lives outside the current working directory.
 
 ## Sample flows
 
-Two quickstart flows live under `colleague-candidates/examples/quickstart`
-(in the `colleague-candidates` git submodule) to demonstrate both onboarding
-paths:
+Two quickstart flows live in the
+[`colleague-candidates`](https://github.com/AI-Colleagues/colleague-candidates)
+repository under `examples/quickstart` to demonstrate both onboarding paths.
+Clone that repository separately into `colleague-candidates/` to use them
+locally; the folder is ignored by Git:
 
 - `canvas_welcome.json` – graph configuration suited for the Studio interface.
 - `sdk_quickstart.py` – Python script that builds the same graph and executes it

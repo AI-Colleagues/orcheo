@@ -112,8 +112,9 @@ The `examples/` directory contains ChatKit widget examples
 example workflows — quickstart journeys, ingestion scripts, messaging bots, and
 more — lives in the
 [`colleague-candidates`](https://github.com/AI-Colleagues/colleague-candidates)
-repository's `examples/` directory (vendored here as the `colleague-candidates/`
-git submodule).
+repository's `examples/` directory. Clone that repository separately into
+`colleague-candidates/` to use those examples locally; the folder is ignored
+by Git.
 
 ## Further Reading
 

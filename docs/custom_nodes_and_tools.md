@@ -233,9 +233,11 @@ They:
 - compile from the shared example workflow
 - dispatch normalized payloads through the runtime adapter contract
 
-The shared builder workflow lives in the `colleague-candidates` git submodule
-at `colleague-candidates/examples/wecom_lark_shared_listener/` (`workflow.py`
-plus `config.json`).
+The shared builder workflow lives in the
+[`colleague-candidates`](https://github.com/AI-Colleagues/colleague-candidates)
+repository at `examples/wecom_lark_shared_listener/` (`workflow.py` plus
+`config.json`). Clone that repository separately into `colleague-candidates/`
+to use the workflow locally; the folder is ignored by Git.
 
 Install both plugins before uploading that workflow to a runtime environment.
 

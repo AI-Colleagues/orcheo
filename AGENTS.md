@@ -14,9 +14,12 @@ The project is a monorepo containing:
 - **Agentensor** (`packages/agentensor/`): Agent prompt tensors, modules, and optimizers for Orcheo workflows.
 - **Studio** (`apps/studio/`): Web interface for monitoring and managing workflows — React 19, Vite, Radix UI, Tailwind CSS, @xyflow/react. Workflow authoring is done via the SDK or AI coding agents.
 
-Git submodules (separate repositories with their own `AGENTS.md`):
-- `colleague-candidates/` — candidate AI colleague workflows (which itself nests the `colleague-experts/` submodule).
+Optional local companion repositories (ignored by Git; clone separately when needed):
+- `colleague-candidates/` — candidate AI colleague workflows, with an optional local `colleague-experts/` repository.
 - `agent-skills/` — reusable agent skills, including the `orcheo` CLI skill.
+- `orcheo-design-system/` — shared design system.
+
+Follow each companion repository's own `AGENTS.md` when present.
 
 ## Project Structure & Module Organization
 
