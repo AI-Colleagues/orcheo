@@ -99,6 +99,7 @@ def test_foreign_credentials_are_not_found(
         ("post", "/api/runs/{run_id}/cancel", {"actor": "t"}),
         ("get", "/api/executions/{run_id}/history", None),
         ("get", "/api/executions/{run_id}/trace", None),
+        ("get", "/api/executions/{run_id}/trace/spans/any-span/state", None),
         ("post", "/api/executions/{run_id}/replay", {"from_step": 0}),
         (
             "post",

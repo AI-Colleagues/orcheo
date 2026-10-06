@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from hashlib import blake2b
-from typing import Any, TypedDict
+from typing import Any
 from orcheo.tracing import workflow as tracing_workflow
 from orcheo.tracing.model_metadata import (
     NAMESPACE_METADATA_KEY,
@@ -21,6 +21,7 @@ from orcheo_backend.app.schemas.traces import (
     TraceResponse,
     TraceSpanEvent,
     TraceSpanResponse,
+    TraceSpanStateResponse,
     TraceSpanStatus,
     TraceTokenUsage,
     TraceUpdateMessage,
@@ -63,30 +64,21 @@ _NON_SENSITIVE_STATE_KEYS = frozenset(
 )
 
 
-class _WorkflowStateSnapshot(TypedDict):
-    before: dict[str, Any]
-    after: dict[str, Any]
-    redacted: bool
-    truncated: bool
-
-
 def build_trace_response(record: RunHistoryRecord) -> TraceResponse:
-    """Convert a history record into a trace response."""
+    """Convert a history record into a trace response.
+
+    Full workflow state snapshots are deliberately left out: they grow with
+    every step, so embedding them per span makes the payload quadratic in run
+    length. Clients fetch them per span via :func:`build_span_state`.
+    """
     root_span_id = _derive_root_span_id(record.trace_id, record.execution_id)
     runtime_thread_id = _extract_runtime_thread_id(record)
     root_span = _build_root_span(record, root_span_id, runtime_thread_id)
-    state_snapshots = _build_workflow_state_snapshots(record)
     tracker = _NamespaceSpanTracker(record.execution_id, root_span_id)
 
     spans_by_id: dict[str, TraceSpanResponse] = {root_span.span_id: root_span}
     for step in record.steps:
-        for span in _build_spans_for_step(
-            record,
-            step,
-            root_span_id,
-            state_snapshots=state_snapshots,
-            tracker=tracker,
-        ):
+        for span in _build_spans_for_step(record, step, root_span_id, tracker=tracker):
             spans_by_id[span.span_id] = span
 
     total_input = 0
@@ -124,7 +116,6 @@ def build_trace_update(
     """Assemble a websocket trace update message."""
     root_span_id = _derive_root_span_id(record.trace_id, record.execution_id)
     runtime_thread_id = _extract_runtime_thread_id(record)
-    state_snapshots = _build_workflow_state_snapshots(record)
     spans: list[TraceSpanResponse] = []
     if include_root:
         spans.append(_build_root_span(record, root_span_id, runtime_thread_id))
@@ -134,15 +125,7 @@ def build_trace_update(
             if prior_step.index >= step.index:
                 break
             tracker.observe_all(prior_step)
-        spans.extend(
-            _build_spans_for_step(
-                record,
-                step,
-                root_span_id,
-                state_snapshots=state_snapshots,
-                tracker=tracker,
-            )
-        )
+        spans.extend(_build_spans_for_step(record, step, root_span_id, tracker=tracker))
 
     if not spans and not complete:
         return None
@@ -346,7 +329,6 @@ def _build_spans_for_step(
     step: RunHistoryStep,
     root_span_id: str,
     *,
-    state_snapshots: Mapping[tuple[int, str], _WorkflowStateSnapshot] | None = None,
     tracker: _NamespaceSpanTracker | None = None,
 ) -> list[TraceSpanResponse]:
     tracker = tracker or _NamespaceSpanTracker(record.execution_id, root_span_id)
@@ -366,17 +348,7 @@ def _build_spans_for_step(
             # span. Aggregate updates that close an open container (empty
             # namespace with a touched path) are folded into the container
             # render above instead of emitting a second, flat span.
-            state_snapshot = None
-            if state_snapshots is not None:
-                state_snapshot = state_snapshots.get((step.index, node_key))
-            span = _build_node_span(
-                record,
-                step,
-                node_key,
-                payload,
-                parent_id,
-                state_snapshot=state_snapshot,
-            )
+            span = _build_node_span(record, step, node_key, payload, parent_id)
             if span is not None:
                 spans.append(span)
     return spans
@@ -388,8 +360,6 @@ def _build_node_span(
     node_key: str,
     payload: Mapping[str, Any],
     parent_id: str,
-    *,
-    state_snapshot: _WorkflowStateSnapshot | None = None,
 ) -> TraceSpanResponse | None:
     attributes = _node_attributes(node_key, payload, workspace_id=record.workspace_id)
     span_id = _derive_child_span_id(record.execution_id, step.index, node_key)
@@ -404,13 +374,15 @@ def _build_node_span(
     artifact_ids = _extract_artifact_ids(payload)
     if artifact_ids:
         attributes["orcheo.artifact.ids"] = artifact_ids
-    if state_snapshot is not None:  # pragma: no branch
-        attributes["orcheo.workflow.state.before"] = state_snapshot["before"]
-        attributes["orcheo.workflow.state.after"] = state_snapshot["after"]
-        if state_snapshot["redacted"]:
-            attributes["orcheo.workflow.state.redacted"] = True
-        if state_snapshot["truncated"]:
-            attributes["orcheo.workflow.state.truncated"] = True
+    output, _redacted, _truncated = _sanitize_value(
+        {
+            str(key): value
+            for key, value in payload.items()
+            if key != TRACE_METADATA_KEY
+        },
+        depth=0,
+    )
+    attributes["orcheo.node.output"] = output
     events = list(_collect_message_events(payload, start_time))
     status = _status_from_payload(payload)
     return TraceSpanResponse(
@@ -425,33 +397,38 @@ def _build_node_span(
     )
 
 
-def _build_workflow_state_snapshots(
-    record: RunHistoryRecord,
-) -> dict[tuple[int, str], _WorkflowStateSnapshot]:
-    state = _initial_workflow_state(record.inputs)
-    snapshots: dict[tuple[int, str], _WorkflowStateSnapshot] = {}
+def build_span_state(
+    record: RunHistoryRecord, span_id: str
+) -> TraceSpanStateResponse | None:
+    """Return the workflow state just before and after the node span ``span_id``.
 
+    The state is rebuilt by folding node updates in order, stopping at the
+    target span, so a lookup costs one linear pass over the history. Returns
+    ``None`` when ``span_id`` does not identify a node span of this execution.
+    """
+    state = _initial_workflow_state(record.inputs)
     for step in record.steps:
         for node_key, payload in step.payload.items():
             if not isinstance(payload, Mapping):
                 continue
-            before_state = _clone_json_like(state)
-            state = _merge_workflow_state(state, payload)
-            after_state = _clone_json_like(state)
-            sanitized_before, before_redacted, before_truncated = (
-                _sanitize_state_snapshot(before_state)
+            is_target = (
+                _derive_child_span_id(record.execution_id, step.index, node_key)
+                == span_id
             )
-            sanitized_after, after_redacted, after_truncated = _sanitize_state_snapshot(
-                after_state
+            if not is_target:
+                _merge_into_workflow_state(state, payload)
+                continue
+            before, before_redacted, before_truncated = _sanitize_state_snapshot(state)
+            _merge_into_workflow_state(state, payload)
+            after, after_redacted, after_truncated = _sanitize_state_snapshot(state)
+            return TraceSpanStateResponse(
+                span_id=span_id,
+                before=before,
+                after=after,
+                redacted=before_redacted or after_redacted,
+                truncated=before_truncated or after_truncated,
             )
-            snapshots[(step.index, node_key)] = {
-                "before": sanitized_before,
-                "after": sanitized_after,
-                "redacted": before_redacted or after_redacted,
-                "truncated": before_truncated or after_truncated,
-            }
-
-    return snapshots
+    return None
 
 
 def _initial_workflow_state(inputs: Mapping[str, Any]) -> dict[str, Any]:
@@ -467,16 +444,24 @@ def _merge_workflow_state(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     merged = _clone_json_like(current_state)
+    _merge_into_workflow_state(merged, payload)
+    return merged
+
+
+def _merge_into_workflow_state(
+    state: dict[str, Any],
+    payload: Mapping[str, Any],
+) -> None:
+    """Fold ``payload`` into ``state`` in place, copying only incoming values."""
     for key, value in payload.items():
         key_str = str(key)
         if key_str == TRACE_METADATA_KEY:
             continue
-        existing = merged.get(key_str)
-        if isinstance(existing, Mapping) and isinstance(value, Mapping):
-            merged[key_str] = _merge_workflow_state(existing, value)
+        existing = state.get(key_str)
+        if isinstance(existing, dict) and isinstance(value, Mapping):
+            _merge_into_workflow_state(existing, value)
             continue
-        merged[key_str] = _clone_json_like(value)
-    return merged
+        state[key_str] = _clone_json_like(value)
 
 
 def _clone_json_like(value: Any) -> Any:
@@ -754,6 +739,7 @@ def _extract_latency(payload: Mapping[str, Any]) -> int | None:
 
 
 __all__ = [
+    "build_span_state",
     "build_trace_response",
     "build_trace_update",
 ]

@@ -1,8 +1,10 @@
 """Workflow run management routes."""
 
 from __future__ import annotations
+from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status
+from starlette.concurrency import run_in_threadpool
 from orcheo.models import WorkflowRun
 from orcheo.vault.oauth import CredentialHealthError
 from orcheo.workspace.models import WorkspaceContext
@@ -37,9 +39,9 @@ from orcheo_backend.app.schemas.runs import (
     RunReplayRequest,
     RunSucceedRequest,
 )
-from orcheo_backend.app.schemas.traces import TraceResponse
+from orcheo_backend.app.schemas.traces import TraceResponse, TraceSpanStateResponse
 from orcheo_backend.app.schemas.workflows import WorkflowRunCreateRequest
-from orcheo_backend.app.trace_utils import build_trace_response
+from orcheo_backend.app.trace_utils import build_span_state, build_trace_response
 from orcheo_backend.app.workspace import WorkspaceContextDep
 
 
@@ -261,13 +263,25 @@ async def list_workflow_execution_histories(
     repository: RepositoryDep,
     workspace: WorkspaceContextDep,
     limit: int = Query(50, ge=1, le=200),
+    include_steps: Annotated[
+        bool,
+        Query(
+            description=(
+                "Include each run's step payloads. Pass false to list run "
+                "summaries only; steps are then returned empty."
+            ),
+        ),
+    ] = True,
 ) -> list[RunHistoryResponse]:
     """Return execution histories recorded for the workflow."""
     workflow_uuid = await resolve_workflow_ref_id(
         repository, workflow_ref, workspace_id=str(workspace.workspace_id)
     )
     records = await history_store.list_histories(
-        str(workflow_uuid), limit=limit, workspace_id=str(workspace.workspace_id)
+        str(workflow_uuid),
+        limit=limit,
+        workspace_id=str(workspace.workspace_id),
+        include_steps=include_steps,
     )
     return [history_to_response(record) for record in records]
 
@@ -303,7 +317,30 @@ async def get_execution_trace(
     record = await _load_history_in_workspace(
         history_store, repository, execution_id, workspace
     )
-    return build_trace_response(record)
+    # Assembling spans is CPU-bound; keep it off the event loop so long traces
+    # do not stall concurrent requests.
+    return await run_in_threadpool(build_trace_response, record)
+
+
+@router.get(
+    "/executions/{execution_id}/trace/spans/{span_id}/state",
+    response_model=TraceSpanStateResponse,
+)
+async def get_execution_span_state(
+    execution_id: str,
+    span_id: str,
+    history_store: HistoryStoreDep,
+    repository: RepositoryDep,
+    workspace: WorkspaceContextDep,
+) -> TraceSpanStateResponse:
+    """Return the workflow state before and after a node span ran."""
+    record = await _load_history_in_workspace(
+        history_store, repository, execution_id, workspace
+    )
+    state = await run_in_threadpool(build_span_state, record, span_id)
+    if state is None:
+        raise_not_found("Trace span not found", LookupError(span_id))
+    return state
 
 
 @router.post(

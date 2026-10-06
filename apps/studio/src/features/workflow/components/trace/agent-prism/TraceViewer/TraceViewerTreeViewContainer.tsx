@@ -6,7 +6,54 @@ import { Badge } from "../Badge";
 import { TraceListItemHeader } from "../TraceList/TraceListItemHeader";
 import { TreeView } from "../TreeView";
 import { type TraceRecordWithDisplayData } from "./TraceViewer";
+import { isTraceLoadPending } from "./traceLoadStatus";
 import { TraceViewerSearchAndControls } from "./TraceViewerSearchAndControls";
+
+const SKELETON_ROW_INDENTS = ["pl-3", "pl-8", "pl-8", "pl-12", "pl-8", "pl-3"];
+
+export const TraceSpansSkeleton = () => (
+  <div
+    role="status"
+    aria-live="polite"
+    data-testid="trace-spans-loading"
+    className="flex flex-col gap-3 p-3"
+  >
+    <span className="sr-only">Loading trace spans…</span>
+    {SKELETON_ROW_INDENTS.map((indent, index) => (
+      <div key={index} className={`flex items-center gap-2 ${indent}`}>
+        <div className="bg-agentprism-muted size-4 shrink-0 animate-pulse rounded" />
+        <div
+          className="bg-agentprism-muted h-3 animate-pulse rounded"
+          style={{ width: `${55 - index * 5}%` }}
+        />
+        <div className="bg-agentprism-muted ml-auto h-3 w-12 shrink-0 animate-pulse rounded" />
+      </div>
+    ))}
+  </div>
+);
+
+const EmptySpansMessage = ({
+  selectedTrace,
+  isSearching,
+}: {
+  selectedTrace?: TraceRecordWithDisplayData;
+  isSearching: boolean;
+}) => {
+  if (!isSearching && isTraceLoadPending(selectedTrace?.loadStatus)) {
+    return <TraceSpansSkeleton />;
+  }
+  let message = "No spans recorded yet for this execution.";
+  if (isSearching) {
+    message = "No spans found";
+  } else if (selectedTrace?.loadStatus === "error") {
+    message = "Couldn't load this trace. Use Refresh to try again.";
+  }
+  return (
+    <div className="text-agentprism-muted-foreground p-3 text-center">
+      {message}
+    </div>
+  );
+};
 
 export const TraceViewerTreeViewContainer = ({
   searchValue,
@@ -57,9 +104,10 @@ export const TraceViewerTreeViewContainer = ({
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         {filteredSpans.length === 0 ? (
-          <div className="text-agentprism-muted-foreground p-3 text-center">
-            No spans found
-          </div>
+          <EmptySpansMessage
+            selectedTrace={selectedTrace}
+            isSearching={searchValue.trim().length > 0}
+          />
         ) : (
           <TreeView
             spans={filteredSpans}

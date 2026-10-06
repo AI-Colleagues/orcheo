@@ -71,6 +71,16 @@ class TraceResponse(BaseModel):
     page_info: TracePageInfo = Field(default_factory=TracePageInfo)
 
 
+class TraceSpanStateResponse(BaseModel):
+    """Workflow state captured immediately before and after a node span ran."""
+
+    span_id: str
+    before: dict[str, Any] = Field(default_factory=dict)
+    after: dict[str, Any] = Field(default_factory=dict)
+    redacted: bool = False
+    truncated: bool = False
+
+
 class TraceUpdateMessage(BaseModel):
     """Realtime websocket payload describing trace changes."""
 

@@ -41,6 +41,7 @@ export const useTraceSelection = ({
           ...initialTraceData.traceRecord,
           badges: initialTraceData.badges,
           spanCardViewOptions: initialTraceData.spanCardViewOptions,
+          loadStatus: initialTraceData.loadStatus,
         }
       : undefined,
   );
@@ -137,6 +138,7 @@ export const useTraceSelection = ({
       ...traceData.traceRecord,
       badges: traceData.badges,
       spanCardViewOptions: traceData.spanCardViewOptions,
+      loadStatus: traceData.loadStatus,
     };
 
     setSelectedTrace((previous) => {
@@ -144,7 +146,8 @@ export const useTraceSelection = ({
         previous &&
         previous.id === nextTrace.id &&
         previous.badges === nextTrace.badges &&
-        previous.spanCardViewOptions === nextTrace.spanCardViewOptions
+        previous.spanCardViewOptions === nextTrace.spanCardViewOptions &&
+        previous.loadStatus === nextTrace.loadStatus
       ) {
         return previous;
       }

@@ -12,6 +12,7 @@ import {
   DetailsViewContentViewer,
   type DetailsViewContentViewMode,
 } from "./DetailsViewContentViewer";
+import { useSpanWorkflowState } from "./SpanStateContext";
 
 interface DetailsViewInputOutputTabProps {
   data: TraceSpan;
@@ -147,8 +148,15 @@ export const DetailsViewInputOutputTab = ({
   data,
 }: DetailsViewInputOutputTabProps): ReactElement => {
   const metadata = data.metadata as TraceSpanMetadata | undefined;
-  const workflowStateBefore = metadata?.workflowStateBefore;
-  const workflowStateAfter = metadata?.workflowStateAfter;
+  const spanState = useSpanWorkflowState(
+    metadata?.executionId,
+    data.id,
+    Boolean(metadata?.hasWorkflowState),
+  );
+  const loadedState =
+    spanState.status === "ready" ? spanState.state : undefined;
+  const workflowStateBefore = loadedState?.before;
+  const workflowStateAfter = loadedState?.after;
   const hasWorkflowState = Boolean(workflowStateBefore || workflowStateAfter);
 
   const stateDiff = useMemo(
@@ -178,6 +186,36 @@ export const DetailsViewInputOutputTab = ({
     setShowSnapshots(false);
   }, [data.id]);
 
+  if (spanState.status === "loading") {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        data-testid="span-state-loading"
+        className="space-y-2"
+      >
+        <span className="sr-only">Loading workflow state…</span>
+        {[70, 55, 62].map((width) => (
+          <div
+            key={width}
+            className="bg-agentprism-muted h-10 animate-pulse rounded-md"
+            style={{ width: `${width}%` }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (spanState.status === "error") {
+    return (
+      <div className="border-agentprism-border rounded-md border p-4">
+        <p className="text-agentprism-muted-foreground text-sm">
+          Couldn't load the workflow state for this span. {spanState.error}
+        </p>
+      </div>
+    );
+  }
+
   if (hasWorkflowState) {
     const visibleDiff = stateDiff.slice(0, MAX_VISIBLE_DIFF_ENTRIES);
     const hiddenCount = Math.max(stateDiff.length - visibleDiff.length, 0);
@@ -186,15 +224,14 @@ export const DetailsViewInputOutputTab = ({
 
     return (
       <div className="space-y-4">
-        {(metadata?.workflowStateRedacted ||
-          metadata?.workflowStateTruncated) && (
+        {(loadedState?.redacted || loadedState?.truncated) && (
           <div className="border-agentprism-border rounded-md border p-3 text-xs">
-            {metadata.workflowStateRedacted && (
+            {loadedState.redacted && (
               <p className="text-agentprism-muted-foreground">
                 Sensitive fields were redacted in this snapshot.
               </p>
             )}
-            {metadata.workflowStateTruncated && (
+            {loadedState.truncated && (
               <p className="text-agentprism-muted-foreground">
                 Large values were truncated in this snapshot.
               </p>

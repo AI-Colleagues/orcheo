@@ -151,8 +151,13 @@ class RunHistoryStore(Protocol):
         *,
         limit: int | None = None,
         workspace_id: str | None = None,
+        include_steps: bool = True,
     ) -> list[RunHistoryRecord]:
-        """Return histories associated with the provided workflow."""
+        """Return histories associated with the provided workflow.
+
+        With ``include_steps=False`` the records carry no steps, which keeps
+        listing cheap when callers only need run summaries.
+        """
 
 
 __all__ = [

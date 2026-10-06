@@ -81,15 +81,30 @@ export interface TraceArtifactMetadata {
 
 export interface TraceSpanMetadata {
   artifacts: TraceArtifactMetadata[];
+  executionId?: string;
   nodeId?: string;
   nodeKind?: string;
   nodeStatus?: string;
   tokenInput?: number;
   tokenOutput?: number;
-  workflowStateBefore?: Record<string, unknown>;
-  workflowStateAfter?: Record<string, unknown>;
-  workflowStateRedacted?: boolean;
-  workflowStateTruncated?: boolean;
+  /** Node spans can fetch their before/after workflow state on demand. */
+  hasWorkflowState?: boolean;
+}
+
+export interface TraceSpanStateResponse {
+  span_id: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  redacted: boolean;
+  truncated: boolean;
+}
+
+/** Lightweight execution info used to list traces before they are fetched. */
+export interface TraceExecutionSummary {
+  id: string;
+  status?: string;
+  startTime?: string;
+  endTime?: string;
 }
 
 export interface ExecutionTraceEntry {
@@ -175,7 +190,10 @@ const toEvents = (
   }));
 };
 
-const createSpanMetadata = (span: TraceSpanResponse): TraceSpanMetadata => {
+const createSpanMetadata = (
+  span: TraceSpanResponse,
+  executionId: string,
+): TraceSpanMetadata => {
   const artifactsValue = span.attributes?.["orcheo.artifact.ids"];
   const artifacts: TraceArtifactMetadata[] = Array.isArray(artifactsValue)
     ? artifactsValue
@@ -185,11 +203,13 @@ const createSpanMetadata = (span: TraceSpanResponse): TraceSpanMetadata => {
 
   const metadata: TraceSpanMetadata = {
     artifacts,
+    executionId,
   };
 
   const nodeId = span.attributes?.["orcheo.node.id"];
   if (nodeId) {
     metadata.nodeId = String(nodeId);
+    metadata.hasWorkflowState = true;
   }
   const nodeKind = span.attributes?.["orcheo.node.kind"];
   if (nodeKind) {
@@ -207,35 +227,6 @@ const createSpanMetadata = (span: TraceSpanResponse): TraceSpanMetadata => {
   }
   if (typeof output === "number" && Number.isFinite(output)) {
     metadata.tokenOutput = output;
-  }
-
-  const workflowStateBefore = span.attributes?.["orcheo.workflow.state.before"];
-  if (
-    workflowStateBefore &&
-    typeof workflowStateBefore === "object" &&
-    !Array.isArray(workflowStateBefore)
-  ) {
-    metadata.workflowStateBefore = workflowStateBefore as Record<
-      string,
-      unknown
-    >;
-  }
-
-  const workflowStateAfter = span.attributes?.["orcheo.workflow.state.after"];
-  if (
-    workflowStateAfter &&
-    typeof workflowStateAfter === "object" &&
-    !Array.isArray(workflowStateAfter)
-  ) {
-    metadata.workflowStateAfter = workflowStateAfter as Record<string, unknown>;
-  }
-
-  if (span.attributes?.["orcheo.workflow.state.redacted"] === true) {
-    metadata.workflowStateRedacted = true;
-  }
-
-  if (span.attributes?.["orcheo.workflow.state.truncated"] === true) {
-    metadata.workflowStateTruncated = true;
   }
 
   return metadata;
@@ -325,21 +316,31 @@ export interface ApplyTraceResponseOptions {
   replaceSpans?: boolean;
 }
 
-const updateEntryWithSpan = (
+/**
+ * Merge a batch of spans into an entry. The span maps are copied once per
+ * batch (not once per span) so ingesting a large trace stays linear.
+ */
+const applySpansToEntry = (
   entry: ExecutionTraceEntry,
-  span: TraceSpanResponse,
+  spans: TraceSpanResponse[],
 ): ExecutionTraceEntry => {
-  const merged = mergeSpan(entry.spansById[span.span_id], span);
+  if (spans.length === 0) {
+    return entry;
+  }
+  const spansById = { ...entry.spansById };
+  const spanMetadata = { ...entry.spanMetadata };
+  for (const span of spans) {
+    const merged = mergeSpan(spansById[span.span_id], span);
+    spansById[merged.span_id] = merged;
+    spanMetadata[merged.span_id] = createSpanMetadata(
+      merged,
+      entry.executionId,
+    );
+  }
   return {
     ...entry,
-    spansById: {
-      ...entry.spansById,
-      [merged.span_id]: merged,
-    },
-    spanMetadata: {
-      ...entry.spanMetadata,
-      [merged.span_id]: createSpanMetadata(merged),
-    },
+    spansById,
+    spanMetadata,
     lastUpdatedAt: new Date().toISOString(),
   };
 };
@@ -358,7 +359,7 @@ export const applyTraceResponse = (
     : entry;
   const priorIsComplete = options.replaceSpans ? false : baseEntry.isComplete;
 
-  let next = {
+  const next = {
     ...baseEntry,
     status: "ready" as TraceEntryStatus,
     metadata: response.execution,
@@ -372,25 +373,21 @@ export const applyTraceResponse = (
       response.page_info.has_next_page === false,
   };
 
-  for (const span of response.spans) {
-    next = updateEntryWithSpan(next, span);
-  }
-
-  return next;
+  return applySpansToEntry(next, response.spans);
 };
 
 export const applyTraceUpdate = (
   entry: ExecutionTraceEntry,
   update: TraceUpdateMessage,
 ): ExecutionTraceEntry => {
-  let next: ExecutionTraceEntry = {
-    ...entry,
-    traceId: update.trace_id,
-    lastUpdatedAt: new Date().toISOString(),
-  };
-  for (const span of update.spans) {
-    next = updateEntryWithSpan(next, span);
-  }
+  let next: ExecutionTraceEntry = applySpansToEntry(
+    {
+      ...entry,
+      traceId: update.trace_id,
+      lastUpdatedAt: new Date().toISOString(),
+    },
+    update.spans,
+  );
   if (update.complete) {
     next = {
       ...next,
@@ -583,6 +580,7 @@ export const buildTraceViewerData = (
     spans: enrichedTree,
     badges,
     threadId: resolveEntryThreadId(entry),
+    loadStatus: entry.status,
   };
 };
 
@@ -629,18 +627,81 @@ export const markTraceReady = (
   status: "ready",
 });
 
+const parseTimestamp = (value?: string | null): number | undefined => {
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+/**
+ * Viewer entry for an execution whose spans are not (yet) available, so the
+ * trace list stays complete while traces load lazily on selection.
+ */
+export const buildPlaceholderViewerData = (
+  summary: TraceExecutionSummary,
+  entry?: ExecutionTraceEntry,
+): TraceViewerData => {
+  const startTime =
+    parseTimestamp(entry?.metadata?.started_at) ??
+    parseTimestamp(summary.startTime);
+  const endTime =
+    parseTimestamp(entry?.metadata?.finished_at) ??
+    parseTimestamp(summary.endTime);
+  const status = entry?.metadata?.status ?? summary.status;
+  return {
+    traceRecord: {
+      id: summary.id,
+      name: entry?.metadata?.trace_id ?? summary.id,
+      spansCount: 0,
+      durationMs:
+        startTime !== undefined && endTime !== undefined
+          ? Math.max(endTime - startTime, 0)
+          : 0,
+      agentDescription: status ?? "unknown",
+      startTime,
+    },
+    spans: [],
+    badges: status ? [{ label: `Status: ${status}` }] : [],
+    loadStatus: entry?.status ?? "idle",
+  };
+};
+
 export const deriveViewerDataList = (
   state: ExecutionTraceState,
   options: BuildViewerDataOptions = {},
-): TraceViewerData[] =>
-  Object.values(state)
-    .map((entry) => buildTraceViewerData(entry, options))
-    .filter((value): value is TraceViewerData => Boolean(value))
-    .sort((a, b) => {
-      const aStart = a.traceRecord.startTime ?? 0;
-      const bStart = b.traceRecord.startTime ?? 0;
-      return bStart - aStart;
-    });
+  summaries: TraceExecutionSummary[] = [],
+): TraceViewerData[] => {
+  const viewerData = new Map<string, TraceViewerData>();
+  for (const entry of Object.values(state)) {
+    const viewer = buildTraceViewerData(entry, options);
+    if (viewer) {
+      viewerData.set(entry.executionId, viewer);
+    }
+  }
+  for (const summary of summaries) {
+    if (!viewerData.has(summary.id)) {
+      viewerData.set(
+        summary.id,
+        buildPlaceholderViewerData(summary, state[summary.id]),
+      );
+    }
+  }
+  for (const entry of Object.values(state)) {
+    if (!viewerData.has(entry.executionId) && entry.status !== "idle") {
+      viewerData.set(
+        entry.executionId,
+        buildPlaceholderViewerData({ id: entry.executionId }, entry),
+      );
+    }
+  }
+  return [...viewerData.values()].sort((a, b) => {
+    const aStart = a.traceRecord.startTime ?? 0;
+    const bStart = b.traceRecord.startTime ?? 0;
+    return bStart - aStart;
+  });
+};
 
 const deriveSpanTimeBounds = (
   spans: TraceSpan[],

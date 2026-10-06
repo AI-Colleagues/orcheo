@@ -1,6 +1,6 @@
 import "@features/workflow/components/trace/agent-prism/theme/theme.css";
 
-import { RefreshCw } from "lucide-react";
+import { LoaderCircle, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { TraceSpan } from "@evilmartians/agent-prism-types";
 
@@ -8,17 +8,57 @@ import { Alert, AlertDescription, AlertTitle } from "@/design-system/ui/alert";
 import { Button } from "@/design-system/ui/button";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
 import { TraceViewer } from "@features/workflow/components/trace/agent-prism";
+import {
+  SpanStateLoaderProvider,
+  type SpanStateLoader,
+} from "@features/workflow/components/trace/agent-prism/DetailsView/SpanStateContext";
 import { deriveThreadStitchedViewerDataList } from "@features/workflow/pages/workflow/helpers/trace";
-import type { TraceSpanMetadata } from "@features/workflow/pages/workflow/helpers/trace";
+import type {
+  TraceEntryStatus,
+  TraceSpanMetadata,
+} from "@features/workflow/pages/workflow/helpers/trace";
 
 export interface TraceTabContentProps {
   error?: string;
   viewerData: TraceViewerData[];
   activeViewer?: TraceViewerData;
+  /** Execution currently selected, even before its spans have loaded. */
+  activeExecutionId?: string;
+  /** Load status of the selected execution's trace. */
+  status?: TraceEntryStatus;
   onRefresh: () => void;
   isRefreshing: boolean;
   onSelectTrace?: (traceId: string) => void;
+  /** Fetch every listed trace; the stitched timeline needs them all. */
+  onLoadAllTraces?: () => Promise<void>;
+  loadSpanState?: SpanStateLoader;
 }
+
+const TraceViewerSkeleton = () => (
+  <div
+    role="status"
+    aria-live="polite"
+    data-testid="trace-loading-state"
+    className="flex min-h-0 flex-1 gap-4 rounded-lg border border-border bg-background p-4"
+  >
+    <span className="sr-only">Loading traces…</span>
+    <div className="hidden w-1/5 flex-col gap-3 lg:flex">
+      {[0, 1, 2, 3].map((index) => (
+        <div key={index} className="h-14 animate-pulse rounded-md bg-muted" />
+      ))}
+    </div>
+    <div className="flex flex-1 flex-col gap-3">
+      <div className="h-5 w-1/3 animate-pulse rounded bg-muted" />
+      {[90, 75, 75, 60, 75, 85].map((width, index) => (
+        <div
+          key={index}
+          className="h-4 animate-pulse rounded bg-muted"
+          style={{ width: `${width}%` }}
+        />
+      ))}
+    </div>
+  </div>
+);
 
 const renderArtifactActions = (span: TraceSpan) => {
   const metadata = span.metadata as
@@ -58,11 +98,17 @@ export function TraceTabContent({
   error,
   viewerData,
   activeViewer,
+  activeExecutionId,
+  status,
   onRefresh,
   isRefreshing,
   onSelectTrace,
+  onLoadAllTraces,
+  loadSpanState,
 }: TraceTabContentProps) {
   const [isStitchedTimeline, setIsStitchedTimeline] = useState(false);
+  const [isLoadingAllTraces, setIsLoadingAllTraces] = useState(false);
+  const activeTraceId = activeViewer?.traceRecord.id ?? activeExecutionId;
   const canStitchByThread = useMemo(
     () => viewerData.some((trace) => Boolean(trace.threadId)),
     [viewerData],
@@ -78,18 +124,14 @@ export function TraceTabContent({
     if (!isStitchedTimeline) {
       return viewerData;
     }
-    return deriveThreadStitchedViewerDataList(
-      viewerData,
-      activeViewer?.traceRecord.id,
-    );
-  }, [activeViewer?.traceRecord.id, isStitchedTimeline, viewerData]);
+    return deriveThreadStitchedViewerDataList(viewerData, activeTraceId);
+  }, [activeTraceId, isStitchedTimeline, viewerData]);
 
   const displayedActiveTraceId = useMemo(() => {
     if (!isStitchedTimeline) {
-      return activeViewer?.traceRecord.id;
+      return activeTraceId;
     }
 
-    const activeTraceId = activeViewer?.traceRecord.id;
     if (
       activeTraceId &&
       displayedViewerData.some(
@@ -110,9 +152,10 @@ export function TraceTabContent({
     }
 
     return displayedViewerData[0]?.traceRecord.id;
-  }, [activeViewer, displayedViewerData, isStitchedTimeline]);
+  }, [activeTraceId, activeViewer, displayedViewerData, isStitchedTimeline]);
 
   const hasData = displayedViewerData.length > 0;
+  const isInitialLoad = !hasData && (status === "loading" || isRefreshing);
 
   return (
     <div className="flex h-full w-full min-w-0 flex-col gap-4">
@@ -129,9 +172,19 @@ export function TraceTabContent({
             variant={isStitchedTimeline ? "default" : "outline"}
             disabled={!canStitchByThread}
             onClick={() => {
-              setIsStitchedTimeline((current) => !current);
+              const next = !isStitchedTimeline;
+              setIsStitchedTimeline(next);
+              if (next && onLoadAllTraces) {
+                setIsLoadingAllTraces(true);
+                void onLoadAllTraces().finally(() => {
+                  setIsLoadingAllTraces(false);
+                });
+              }
             }}
           >
+            {isLoadingAllTraces && (
+              <LoaderCircle className="mr-2 size-4 animate-spin" />
+            )}
             {isStitchedTimeline ? "Stitched: On" : "Stitched: Off"}
           </Button>
           <Button
@@ -142,7 +195,9 @@ export function TraceTabContent({
               void onRefresh();
             }}
           >
-            <RefreshCw className="mr-2 size-4" />
+            <RefreshCw
+              className={`mr-2 size-4${isRefreshing ? " animate-spin" : ""}`}
+            />
             {isRefreshing ? "Refreshing..." : "Refresh"}
           </Button>
         </div>
@@ -155,27 +210,31 @@ export function TraceTabContent({
         </Alert>
       )}
 
-      {!hasData && !error && (
+      {isInitialLoad && !error && <TraceViewerSkeleton />}
+
+      {!hasData && !isInitialLoad && !error && (
         <div
           data-testid="trace-empty-state"
           className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground"
         >
-          No trace spans recorded yet for this execution.
+          No traces recorded yet. Run the workflow to capture one.
         </div>
       )}
 
       {hasData && (
         <div className="min-h-0 w-full min-w-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
-          <TraceViewer
-            data={displayedViewerData}
-            activeTraceId={displayedActiveTraceId}
-            onTraceSelect={(trace) => {
-              onSelectTrace?.(trace.id);
-            }}
-            detailsViewProps={{
-              headerActions: renderArtifactActions,
-            }}
-          />
+          <SpanStateLoaderProvider value={loadSpanState}>
+            <TraceViewer
+              data={displayedViewerData}
+              activeTraceId={displayedActiveTraceId}
+              onTraceSelect={(trace) => {
+                onSelectTrace?.(trace.id);
+              }}
+              detailsViewProps={{
+                headerActions: renderArtifactActions,
+              }}
+            />
+          </SpanStateLoaderProvider>
         </div>
       )}
     </div>

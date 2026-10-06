@@ -403,6 +403,7 @@ class PostgresRunHistoryStore:
         *,
         limit: int | None = None,
         workspace_id: str | None = None,
+        include_steps: bool = True,
     ) -> list[RunHistoryRecord]:
         """Return histories associated with the provided workflow."""
         await self._ensure_initialized()
@@ -426,11 +427,17 @@ class PostgresRunHistoryStore:
         async with self._connection() as conn:
             cursor = await conn.execute(query, tuple(params))
             rows = await cursor.fetchall()
-            records: list[RunHistoryRecord] = []
-            for row in rows:
-                steps = await self._fetch_steps(conn, row["execution_id"])
-                records.append(self._row_to_record(row, steps))
-        return records
+            steps_by_execution = (
+                await self._fetch_steps_for_executions(
+                    conn, [row["execution_id"] for row in rows]
+                )
+                if include_steps
+                else {}
+            )
+        return [
+            self._row_to_record(row, steps_by_execution.get(row["execution_id"], []))
+            for row in rows
+        ]
 
     async def _update_status(
         self,
@@ -510,22 +517,41 @@ class PostgresRunHistoryStore:
             (execution_id,),
         )
         rows = await cursor.fetchall()
-        steps: list[RunHistoryStep] = []
+        return [self._row_to_step(row) for row in rows]
+
+    async def _fetch_steps_for_executions(
+        self, conn: Any, execution_ids: list[str]
+    ) -> dict[str, list[RunHistoryStep]]:
+        """Return ordered steps for several executions using a single query."""
+        if not execution_ids:
+            return {}
+        cursor = await conn.execute(
+            """
+            SELECT execution_id, step_index, at, payload
+              FROM execution_history_steps
+             WHERE execution_id = ANY(%s)
+             ORDER BY execution_id, step_index ASC
+            """,
+            (execution_ids,),
+        )
+        rows = await cursor.fetchall()
+        steps_by_execution: dict[str, list[RunHistoryStep]] = {}
         for row in rows:
-            at_value = row["at"]
-            if isinstance(at_value, str):  # pragma: no branch
-                at_value = datetime.fromisoformat(at_value)
-            payload = row["payload"]
-            if isinstance(payload, str):  # pragma: no branch
-                payload = json.loads(payload)
-            steps.append(
-                RunHistoryStep(
-                    index=row["step_index"],
-                    at=at_value,
-                    payload=payload,
-                )
+            steps_by_execution.setdefault(row["execution_id"], []).append(
+                self._row_to_step(row)
             )
-        return steps
+        return steps_by_execution
+
+    @staticmethod
+    def _row_to_step(row: dict[str, Any]) -> RunHistoryStep:
+        """Convert an ``execution_history_steps`` row into a RunHistoryStep."""
+        at_value = row["at"]
+        if isinstance(at_value, str):  # pragma: no branch
+            at_value = datetime.fromisoformat(at_value)
+        payload = row["payload"]
+        if isinstance(payload, str):  # pragma: no branch
+            payload = json.loads(payload)
+        return RunHistoryStep(index=row["step_index"], at=at_value, payload=payload)
 
     @staticmethod
     def _row_to_record(

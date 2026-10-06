@@ -96,9 +96,11 @@ class _FakeHistoryStore:
             raise RunHistoryNotFoundError(f"History not found: {execution_id}")
         return record.model_copy(deep=True)
 
-    async def list_histories(self, workflow_id: str, *, limit=None, workspace_id=None):
+    async def list_histories(
+        self, workflow_id: str, *, limit=None, workspace_id=None, include_steps=True
+    ):
         records = [
-            r.model_copy(deep=True)
+            r.model_copy(deep=True, update=None if include_steps else {"steps": []})
             for r in self._records.values()
             if r.workflow_id == workflow_id
         ]

@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { BadgeProps } from "../Badge";
+import type { TraceLoadStatus } from "../TraceViewer/TraceViewer";
 
 import { Badge } from "../Badge";
 import { Button } from "../Button";
@@ -15,6 +16,7 @@ const INITIAL_VISIBLE_TRACE_COUNT = 20;
 
 type TraceRecordWithBadges = TraceRecord & {
   badges?: Array<BadgeProps>;
+  loadStatus?: TraceLoadStatus;
 };
 
 type TraceListProps = {
