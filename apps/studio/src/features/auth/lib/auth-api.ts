@@ -1,3 +1,9 @@
+import {
+  sendSignal,
+  startAuthentication,
+  type AuthenticationResponseJSON,
+  type PublicKeyCredentialRequestOptionsJSON,
+} from "@simplewebauthn/browser";
 import { buildBackendHttpUrl } from "@/lib/config";
 import {
   clearAuthSession,
@@ -55,26 +61,64 @@ export interface RefreshResult {
 
 let refreshInFlight: Promise<RefreshResult> | null = null;
 
-const readErrorMessage = async (
+/** An auth API failure with its HTTP status and the backend's error code. */
+export class AuthApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "AuthApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+interface ErrorDetail {
+  message: string;
+  code?: string;
+}
+
+const readErrorDetail = async (
   response: Response,
   fallback: string,
-): Promise<string> => {
+): Promise<ErrorDetail> => {
   try {
     const body = (await response.json()) as { detail?: unknown };
     const detail = body.detail;
     if (typeof detail === "string") {
-      return detail;
+      return { message: detail };
     }
-    if (detail && typeof detail === "object" && "message" in detail) {
-      const message = (detail as { message?: unknown }).message;
-      if (typeof message === "string" && message.trim()) {
-        return message;
-      }
+    if (detail && typeof detail === "object") {
+      const { message, code } = detail as { message?: unknown; code?: unknown };
+      return {
+        message:
+          typeof message === "string" && message.trim() ? message : fallback,
+        code: typeof code === "string" ? code : undefined,
+      };
     }
   } catch {
     // fall through to the fallback message
   }
-  return fallback;
+  return { message: fallback };
+};
+
+const readErrorMessage = async (
+  response: Response,
+  fallback: string,
+): Promise<string> => (await readErrorDetail(response, fallback)).message;
+
+/** Build an {@link AuthApiError} from a failed auth API response. */
+export const toAuthApiError = async (
+  response: Response,
+  fallback: string,
+): Promise<AuthApiError> => {
+  const detail = await readErrorDetail(response, fallback);
+  const message =
+    response.status === 429
+      ? "Too many attempts. Please wait a moment and try again."
+      : detail.message;
+  return new AuthApiError(message, response.status, detail.code);
 };
 
 /**
@@ -118,6 +162,82 @@ export const verifyEmailCode = async (
         "This sign-in code is invalid or has expired.",
       ),
     );
+  }
+  const payload = (await response.json()) as SessionPayload;
+  persistTokens(payload);
+  return payload.user;
+};
+
+/** A passkey sign-in whose challenge has been issued by the backend. */
+export interface PasskeySignInRequest {
+  challengeId: string;
+  options: PublicKeyCredentialRequestOptionsJSON;
+}
+
+/**
+ * Ask the backend to start a passkey sign-in. Passkey sign-in is usernameless,
+ * so nothing about the account is sent. Rejects with an {@link AuthApiError}
+ * (status 404) when the server cannot use passkeys.
+ */
+export const beginPasskeySignIn = async (
+  signal?: AbortSignal,
+): Promise<PasskeySignInRequest> => {
+  const response = await fetch(authUrl("/passkey/login/options"), {
+    method: "POST",
+    signal,
+  });
+  if (!response.ok) {
+    throw await toAuthApiError(response, "Passkey sign-in is unavailable.");
+  }
+  const payload = (await response.json()) as {
+    challenge_id: string;
+    options: PublicKeyCredentialRequestOptionsJSON;
+  };
+  return { challengeId: payload.challenge_id, options: payload.options };
+};
+
+const forgetUnknownPasskey = (
+  options: PublicKeyCredentialRequestOptionsJSON,
+  credential: AuthenticationResponseJSON,
+): void => {
+  if (!options.rpId) {
+    return;
+  }
+  // Ask the password manager to stop offering a passkey Orcheo won't accept.
+  void sendSignal({
+    signalName: "unknownCredential",
+    rpID: options.rpId,
+    credentialID: credential.id,
+  }).catch(() => undefined);
+};
+
+/**
+ * Prompt for a passkey and sign in with it, storing the new session. With
+ * `useBrowserAutofill`, the prompt is the email field's autofill list and the
+ * promise stays pending until the person picks a passkey.
+ */
+export const completePasskeySignIn = async (
+  request: PasskeySignInRequest,
+  { useBrowserAutofill = false }: { useBrowserAutofill?: boolean } = {},
+): Promise<AuthUserProfile | undefined> => {
+  const credential = await startAuthentication({
+    optionsJSON: request.options,
+    useBrowserAutofill,
+  });
+  const response = await fetch(authUrl("/passkey/login/verify"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ challenge_id: request.challengeId, credential }),
+  });
+  if (!response.ok) {
+    const error = await toAuthApiError(
+      response,
+      "That passkey could not be verified. Please try again.",
+    );
+    if (error.code === "auth.passkey_unknown") {
+      forgetUnknownPasskey(request.options, credential);
+    }
+    throw error;
   }
   const payload = (await response.json()) as SessionPayload;
   persistTokens(payload);

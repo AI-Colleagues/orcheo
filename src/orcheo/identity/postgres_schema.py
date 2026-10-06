@@ -87,4 +87,35 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_authorization_requests_code_hash
     ON oauth_authorization_requests(code_hash);
 CREATE INDEX IF NOT EXISTS idx_oauth_authorization_requests_expires_at
     ON oauth_authorization_requests(expires_at);
+
+CREATE TABLE IF NOT EXISTS auth_passkeys (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    credential_id TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    sign_count BIGINT NOT NULL DEFAULT 0,
+    transports JSONB NOT NULL,
+    aaguid TEXT,
+    backup_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+    backed_up BOOLEAN NOT NULL DEFAULT FALSE,
+    name TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    last_used_at TIMESTAMP WITH TIME ZONE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_passkeys_credential_id
+    ON auth_passkeys(credential_id);
+CREATE INDEX IF NOT EXISTS idx_auth_passkeys_user ON auth_passkeys(user_id);
+
+CREATE TABLE IF NOT EXISTS auth_passkey_challenges (
+    id UUID PRIMARY KEY,
+    ceremony TEXT NOT NULL,
+    challenge TEXT NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_passkey_challenges_expires_at
+    ON auth_passkey_challenges(expires_at);
 """

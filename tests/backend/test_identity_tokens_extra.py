@@ -1,7 +1,7 @@
 """Extra coverage for first-party identity token helpers."""
 
 from __future__ import annotations
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import jwt
@@ -45,3 +45,30 @@ def test_mint_access_token_applies_extra_claims() -> None:
     assert expires_in == 300
     assert payload["workspace_id"] == "ws-1"
     assert payload["purpose"] == "login"
+
+
+def test_mint_access_token_carries_the_sign_in_time() -> None:
+    user = User(email="alice@example.com")
+    signed_in = datetime.now(tz=UTC) - timedelta(hours=2)
+
+    token, _ = mint_access_token(
+        user=user,
+        secret="secret",
+        issuer="https://issuer.example.com",
+        audience=None,
+        ttl_seconds=300,
+        now=datetime.now(tz=UTC),
+        auth_time=signed_in,
+    )
+    untimed, _ = mint_access_token(
+        user=user,
+        secret="secret",
+        issuer="https://issuer.example.com",
+        audience=None,
+        ttl_seconds=300,
+        now=datetime.now(tz=UTC),
+    )
+
+    claims = jwt.decode(token, "secret", algorithms=["HS256"])
+    assert claims["auth_time"] == int(signed_in.timestamp())
+    assert "auth_time" not in jwt.decode(untimed, "secret", algorithms=["HS256"])

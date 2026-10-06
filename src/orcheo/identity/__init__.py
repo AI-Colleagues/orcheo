@@ -1,4 +1,4 @@
-"""First-party identity core: users, email challenges, sessions, and storage.
+"""First-party identity core: users, challenges, sessions, passkeys, storage.
 
 This package owns the passwordless-email identity domain. The FastAPI identity
 service (``orcheo_backend.app.identity``) builds on these primitives to issue
@@ -16,6 +16,10 @@ from orcheo.identity.errors import (
     IdentitySessionNotFoundError,
     OAuthAuthorizationRequestNotFoundError,
     OAuthClientNotFoundError,
+    PasskeyAlreadyRegisteredError,
+    PasskeyChallengeNotFoundError,
+    PasskeyError,
+    PasskeyNotFoundError,
     UserNotFoundError,
 )
 from orcheo.identity.models import (
@@ -24,6 +28,9 @@ from orcheo.identity.models import (
     ChallengePurpose,
     OAuthAuthorizationRequest,
     OAuthClient,
+    Passkey,
+    PasskeyCeremony,
+    PasskeyChallenge,
     User,
     UserStatus,
     normalize_email,
@@ -55,6 +62,13 @@ __all__ = [
     "OAuthAuthorizationRequestNotFoundError",
     "OAuthClient",
     "OAuthClientNotFoundError",
+    "Passkey",
+    "PasskeyAlreadyRegisteredError",
+    "PasskeyCeremony",
+    "PasskeyChallenge",
+    "PasskeyChallengeNotFoundError",
+    "PasskeyError",
+    "PasskeyNotFoundError",
     "PostgresIdentityRepository",
     "User",
     "UserNotFoundError",

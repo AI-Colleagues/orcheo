@@ -121,7 +121,8 @@ def _enforce_start_rate_limits(
     limiter.check_identity(email_key, now=now)
 
 
-def _email_domain_forbidden(exc: IdentityEmailDomainNotAllowedError) -> HTTPException:
+def email_domain_forbidden(exc: IdentityEmailDomainNotAllowedError) -> HTTPException:
+    """Map a rejected email domain to the shared auth HTTP error."""
     return HTTPException(
         status.HTTP_403_FORBIDDEN,
         detail={"code": "auth.email_domain_not_allowed", "message": str(exc)},
@@ -143,7 +144,7 @@ async def email_start(
     except IdentityEmailDomainNotAllowedError as exc:
         # The domain allowlist is deployment policy, not account existence,
         # so rejecting it explicitly does not create an enumeration oracle.
-        raise _email_domain_forbidden(exc) from exc
+        raise email_domain_forbidden(exc) from exc
     except ValueError:
         # Malformed email — respond identically to avoid a format/existence
         # oracle. Nothing was sent.
@@ -181,7 +182,7 @@ async def email_verify(
     except IdentityChallengeExpiredError as exc:
         raise HTTPException(status.HTTP_410_GONE, detail={"message": str(exc)}) from exc
     except IdentityEmailDomainNotAllowedError as exc:
-        raise _email_domain_forbidden(exc) from exc
+        raise email_domain_forbidden(exc) from exc
     except ValueError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail={"message": str(exc)}
@@ -193,7 +194,7 @@ async def email_verify(
             detail={"message": "Invalid or expired challenge."},
         ) from exc
 
-    return _session_response(result.user, result.tokens)
+    return session_response(result.user, result.tokens)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -256,7 +257,8 @@ async def me(
     return UserProfile.from_user(user)
 
 
-def _session_response(user: User, tokens: IssuedTokens) -> SessionResponse:
+def session_response(user: User, tokens: IssuedTokens) -> SessionResponse:
+    """Build the session response shared by email and passkey sign-in."""
     return SessionResponse(
         access_token=tokens.access_token,
         refresh_token=tokens.refresh_token,
@@ -265,4 +267,4 @@ def _session_response(user: User, tokens: IssuedTokens) -> SessionResponse:
     )
 
 
-__all__ = ["router"]
+__all__ = ["SessionResponse", "email_domain_forbidden", "router", "session_response"]

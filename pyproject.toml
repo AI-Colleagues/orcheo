@@ -78,7 +78,7 @@ description = "Add your description here"
 name = "orcheo"
 readme = "README.md"
 requires-python = ">=3.12"
-version = "0.45.8"
+version = "0.45.9"
 
 [project.scripts]
 orcheo-dev-server = "orcheo.tooling.commands:dev_server"

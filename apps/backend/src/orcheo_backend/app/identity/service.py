@@ -117,6 +117,11 @@ class IdentityService:
         """Return the backing identity repository."""
         return self._repository
 
+    @property
+    def config(self) -> IdentityConfig:
+        """Return the identity tunables."""
+        return self._config
+
     # -- challenge issuance --------------------------------------------------
 
     def now(self) -> datetime:
@@ -232,6 +237,29 @@ class IdentityService:
         self._record("auth.login", "success", subject=str(user.id), ip=ip)
         return VerificationResult(user=user, tokens=tokens)
 
+    def start_session(
+        self,
+        user: User,
+        *,
+        method: str,
+        user_agent: str | None = None,
+        ip: str | None = None,
+    ) -> VerificationResult:
+        """Sign in an existing user who proved their identity without a code.
+
+        Passkey sign-in ends here, in the same session and tokens as an emailed
+        code. Callers must already have checked that the user may sign in.
+        """
+        now = self._clock()
+        signed_in = self._repository.update_user(
+            user.model_copy(update={"last_login_at": now})
+        )
+        tokens = self._issue_session(signed_in, user_agent=user_agent, ip=ip, now=now)
+        self._record(
+            "auth.login", "success", subject=str(user.id), ip=ip, detail=method
+        )
+        return VerificationResult(user=signed_in, tokens=tokens)
+
     def _find_or_create_user(self, email: str, *, now: datetime) -> tuple[User, bool]:
         existing = self._repository.get_user_by_email(email)
         if existing is None:
@@ -256,12 +284,13 @@ class IdentityService:
         session = AuthSession(
             user_id=user.id,
             refresh_token_hash=hash_secret(raw_refresh),
+            created_at=now,
             expires_at=now + timedelta(days=self._config.session_ttl_days),
             user_agent=user_agent,
             ip=ip,
         )
         self._repository.add_session(session)
-        access_token, expires_in = self._mint_access(user, now=now)
+        access_token, expires_in = self._mint_access(user, now=now, session=session)
         return IssuedTokens(
             access_token=access_token,
             refresh_token=raw_refresh,
@@ -273,9 +302,11 @@ class IdentityService:
         user: User,
         *,
         now: datetime,
-        session: AuthSession | None = None,
+        session: AuthSession,
     ) -> tuple[str, int]:
-        if session is None or session.oauth_client_id is None:
+        # A session starts at sign-in and keeps its creation time across
+        # refreshes, so it is the token's ``auth_time``.
+        if session.oauth_client_id is None:
             return mint_access_token(
                 user=user,
                 secret=self._config.jwt_secret,
@@ -283,6 +314,7 @@ class IdentityService:
                 audience=self._config.audience,
                 ttl_seconds=self._config.access_ttl_seconds,
                 now=now,
+                auth_time=session.created_at,
             )
         return mint_access_token(
             user=user,
@@ -293,6 +325,7 @@ class IdentityService:
             now=now,
             scopes=session.scopes or (),
             extra_claims={"client_id": session.oauth_client_id},
+            auth_time=session.created_at,
         )
 
     def refresh(self, refresh_token: str) -> IssuedTokens:
@@ -371,6 +404,7 @@ class IdentityService:
         session = AuthSession(
             user_id=user.id,
             refresh_token_hash=hash_secret(raw_refresh),
+            created_at=now,
             expires_at=now + timedelta(days=self._config.session_ttl_days),
             oauth_client_id=client_id,
             scopes=list(scopes),

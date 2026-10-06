@@ -7,15 +7,18 @@ import pytest
 from starlette.requests import Request
 
 from orcheo_backend.app.identity import dependencies
+from orcheo_backend.app.identity.passkeys import PasskeyService
 
 
 @pytest.fixture(autouse=True)
 def _reset_identity_dependencies() -> None:
     dependencies.set_identity_repository(None)
     dependencies.set_identity_service(None)
+    dependencies.set_passkey_service(None)
     yield
     dependencies.set_identity_repository(None)
     dependencies.set_identity_service(None)
+    dependencies.set_passkey_service(None)
 
 
 def _make_request(
@@ -152,6 +155,79 @@ def test_get_identity_config_uses_defaults_and_overrides(
     assert config.session_ttl_days == 45
     assert config.otp_digits == 8
     assert config.otp_max_attempts == 3
+
+
+def test_get_identity_config_resolves_the_passkey_relying_party(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        dependencies,
+        "load_auth_settings",
+        lambda: SimpleNamespace(jwt_secret="secret", issuer=None, audiences=()),
+    )
+    monkeypatch.setattr(
+        dependencies,
+        "get_settings",
+        lambda: {
+            "STUDIO_URL": "https://studio.example.com",
+            "AUTH_WEBAUTHN_RP_ID": "example.com",
+            "AUTH_WEBAUTHN_ORIGINS": "https://studio.example.com,https://example.com",
+        },
+    )
+
+    config = dependencies.get_identity_config()
+
+    assert config.webauthn_rp_id == "example.com"
+    assert config.webauthn_origins == (
+        "https://studio.example.com",
+        "https://example.com",
+    )
+
+
+def test_get_identity_config_defaults_passkeys_to_the_studio_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        dependencies,
+        "load_auth_settings",
+        lambda: SimpleNamespace(jwt_secret="secret", issuer=None, audiences=()),
+    )
+    monkeypatch.setattr(dependencies, "get_settings", lambda: {})
+
+    config = dependencies.get_identity_config()
+
+    assert config.webauthn_rp_id == "localhost"
+    assert config.webauthn_origins == ("http://localhost:2026",)
+
+
+def test_get_passkey_service_follows_the_identity_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sender = object()
+    monkeypatch.setattr(
+        dependencies, "build_transactional_email_sender", lambda: sender
+    )
+    identity = SimpleNamespace(repository=object())
+    dependencies.set_identity_service(identity)  # type: ignore[arg-type]
+
+    first = dependencies.get_passkey_service()
+    assert first.identity is identity
+    assert first._notice_sender is sender
+    assert dependencies.get_passkey_service() is first
+
+    replacement = SimpleNamespace(repository=object())
+    dependencies.set_identity_service(replacement)  # type: ignore[arg-type]
+    second = dependencies.get_passkey_service()
+    assert second is not first
+    assert second.identity is replacement
+
+    custom = PasskeyService(replacement)  # type: ignore[arg-type]
+    dependencies.set_passkey_service(custom)
+    assert dependencies.get_passkey_service() is custom
+
+    monkeypatch.setattr(dependencies, "get_settings", lambda refresh=False: {})
+    dependencies.reset_identity_state()
+    assert dependencies._passkey_service_ref["service"] is None
 
 
 def test_get_identity_service_is_cached(

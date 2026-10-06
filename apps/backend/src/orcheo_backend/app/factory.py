@@ -72,6 +72,9 @@ from orcheo_backend.app.hosted_apps import (
     internal_router as hosted_apps_internal_router,
 )
 from orcheo_backend.app.hosted_apps import reset_app_bundle_store
+from orcheo_backend.app.identity.passkey_router import (
+    router as passkey_api_router,
+)
 from orcheo_backend.app.identity.router import router as identity_api_router
 from orcheo_backend.app.listener_runtime_service import ListenerRuntimeService
 from orcheo_backend.app.local_execution import drain_inprocess_runs
@@ -313,6 +316,7 @@ def _build_api_router() -> APIRouter:
     router.include_router(chatkit_router.router)
     router.include_router(auth.router)
     router.include_router(identity_api_router)
+    router.include_router(passkey_api_router)
     router.include_router(system.public_router)
     # Authenticates on its own route; tools re-enter the protected API above.
     router.include_router(mcp.router)

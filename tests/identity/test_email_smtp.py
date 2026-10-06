@@ -9,9 +9,11 @@ from orcheo.workspace.email import (
     AuthChallengeEmail,
     InvitationEmail,
     LoggingInvitationEmailSender,
+    PasskeyNoticeEmail,
     SmtpEmailSender,
     SmtpSettings,
     build_email_sender,
+    render_passkey_notice_email,
 )
 
 
@@ -128,3 +130,56 @@ def test_smtp_skips_tls_and_login_when_disabled_or_missing_credentials() -> None
 def test_builder_uses_smtp_when_configured_else_logging() -> None:
     assert isinstance(build_email_sender(smtp=_settings()), SmtpEmailSender)
     assert isinstance(build_email_sender(), LoggingInvitationEmailSender)
+
+
+def test_smtp_sends_passkey_notices() -> None:
+    sender = SmtpEmailSender(_settings())
+    sender.send_passkey_notice(
+        PasskeyNoticeEmail(
+            to="alice@example.com",
+            passkey_name="Work <laptop>",
+            action="added",
+            occurred_at=datetime(2026, 10, 6, 12, 30, tzinfo=UTC),
+        )
+    )
+    smtp = FakeSMTP.instances[-1]
+    assert smtp.sent is not None
+    assert smtp.sent["To"] == "alice@example.com"
+    assert smtp.sent["Subject"] == "A passkey was added to your Orcheo account"
+    html_body = smtp.sent.get_body(("html",)).get_content()
+    text_body = smtp.sent.get_body(("plain",)).get_content()
+    assert "Work &lt;laptop&gt;" in html_body
+    assert "<laptop>" not in html_body
+    assert text_body.startswith(
+        'The passkey "Work <laptop>" was added to your Orcheo account on '
+        "2026-10-06 12:30 UTC."
+    )
+    assert "If you did not do this" in text_body
+
+
+def test_passkey_removal_notice_wording() -> None:
+    rendered = render_passkey_notice_email(
+        PasskeyNoticeEmail(
+            to="alice@example.com",
+            passkey_name="Phone",
+            action="removed",
+            occurred_at=datetime(2026, 10, 6, 12, 30, tzinfo=UTC),
+        )
+    )
+    assert rendered.subject == "A passkey was removed from your Orcheo account"
+    assert "was removed from your Orcheo account" in rendered.text
+
+
+def test_logging_sender_logs_passkey_notices(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("INFO", logger="orcheo.workspace.email"):
+        LoggingInvitationEmailSender().send_passkey_notice(
+            PasskeyNoticeEmail(
+                to="alice@example.com",
+                passkey_name="Phone",
+                action="removed",
+                occurred_at=datetime(2026, 10, 6, 12, 30, tzinfo=UTC),
+            )
+        )
+    assert "Passkey 'Phone' was removed for alice@example.com" in caplog.text

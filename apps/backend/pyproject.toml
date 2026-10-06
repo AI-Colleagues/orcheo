@@ -6,14 +6,16 @@ requires = ["setuptools>=67"]
 dependencies = [
   "fastapi>=0.104.0",
   "uvicorn[standard]>=0.24.0",
-  "orcheo>=0.45.8",
+  "orcheo>=0.45.9",
   "celery[redis]>=5.3.0",
   "redis>=5.0.0",
   "httpx>=0.25.0",
   "fastmcp>=3.4.7,<4",
   # OAuth protocol types (AuthorizationParams, OAuthClientInformationFull, ...)
   # that FastMCP builds on but does not re-export.
-  "mcp>=1.24.0,<2"
+  "mcp>=1.24.0,<2",
+  # WebAuthn ceremonies (passkey registration and sign-in verification).
+  "webauthn>=3.0.1,<4"
 ]
 description = "Deployment wrapper around the Orcheo FastAPI application"
 name = "orcheo-backend"

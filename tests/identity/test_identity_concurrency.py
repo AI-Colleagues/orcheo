@@ -28,6 +28,12 @@ from orcheo.identity import (
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
     InMemoryIdentityRepository,
+    Passkey,
+    PasskeyAlreadyRegisteredError,
+    PasskeyCeremony,
+    PasskeyChallenge,
+    PasskeyChallengeNotFoundError,
+    PasskeyNotFoundError,
     PostgresIdentityRepository,
     User,
 )
@@ -295,3 +301,145 @@ def test_unavailable_challenge_errors_match_between_stores(
             repository.increment_challenge_attempts(
                 challenge_id, now=now, max_attempts=MAX_ATTEMPTS
             )
+
+
+def test_passkey_storage_semantics_match_between_stores(
+    repository: IdentityRepository,
+) -> None:
+    """Uniqueness, ownership and the monotonic counter hold in both stores."""
+    alice = repository.create_user(User(email="alice@example.com"))
+    bob = repository.create_user(User(email="bob@example.com"))
+    passkey = repository.add_passkey(
+        Passkey(
+            user_id=alice.id,
+            credential_id="cred-1",
+            public_key="key",
+            sign_count=5,
+            transports=["internal"],
+            name="Laptop",
+            created_at=NOW,
+        )
+    )
+    with pytest.raises(PasskeyAlreadyRegisteredError):
+        repository.add_passkey(
+            Passkey(user_id=bob.id, credential_id="cred-1", public_key="k", name="x")
+        )
+
+    lowered = repository.record_passkey_use(
+        passkey.id, sign_count=2, backed_up=True, used_at=NOW
+    )
+    assert lowered.sign_count == 5
+    assert lowered.backed_up is True
+    assert lowered.last_used_at == NOW
+    assert repository.get_passkey_by_credential_id("cred-1") == lowered
+    assert repository.list_passkeys(alice.id) == [lowered]
+    assert repository.list_passkeys(bob.id) == []
+
+    with pytest.raises(PasskeyNotFoundError):
+        repository.rename_passkey(bob.id, passkey.id, "Mine")
+    with pytest.raises(PasskeyNotFoundError):
+        repository.delete_passkey(bob.id, passkey.id)
+    assert repository.rename_passkey(alice.id, passkey.id, "Desk").name == "Desk"
+    assert repository.delete_passkey(alice.id, passkey.id).name == "Desk"
+    assert repository.get_passkey_by_credential_id("cred-1") is None
+
+
+def test_passkey_challenge_binding_matches_between_stores(
+    repository: IdentityRepository,
+) -> None:
+    alice = repository.create_user(User(email="alice@example.com"))
+    expires = NOW + timedelta(minutes=5)
+    sign_in = repository.add_passkey_challenge(
+        PasskeyChallenge(
+            ceremony=PasskeyCeremony.AUTHENTICATION,
+            challenge="sign-in",
+            created_at=NOW,
+            expires_at=expires,
+        )
+    )
+    registration = repository.add_passkey_challenge(
+        PasskeyChallenge(
+            ceremony=PasskeyCeremony.REGISTRATION,
+            challenge="register",
+            user_id=alice.id,
+            created_at=NOW,
+            expires_at=expires,
+        )
+    )
+
+    for challenge_id, ceremony, user_id, now in (
+        (sign_in.id, PasskeyCeremony.REGISTRATION, None, NOW),
+        (registration.id, PasskeyCeremony.REGISTRATION, None, NOW),
+        (registration.id, PasskeyCeremony.REGISTRATION, uuid4(), NOW),
+        (sign_in.id, PasskeyCeremony.AUTHENTICATION, None, expires),
+    ):
+        with pytest.raises(PasskeyChallengeNotFoundError):
+            repository.consume_passkey_challenge(
+                challenge_id, ceremony=ceremony, user_id=user_id, now=now
+            )
+
+    consumed = repository.consume_passkey_challenge(
+        registration.id,
+        ceremony=PasskeyCeremony.REGISTRATION,
+        user_id=alice.id,
+        now=NOW,
+    )
+    assert consumed == registration
+
+    # Issuing a challenge once the sign-in one has expired purges it.
+    later = repository.add_passkey_challenge(
+        PasskeyChallenge(
+            ceremony=PasskeyCeremony.AUTHENTICATION,
+            challenge="later",
+            created_at=expires,
+            expires_at=expires + timedelta(minutes=5),
+        )
+    )
+    with pytest.raises(PasskeyChallengeNotFoundError):
+        repository.consume_passkey_challenge(
+            sign_in.id,
+            ceremony=PasskeyCeremony.AUTHENTICATION,
+            user_id=None,
+            now=NOW,
+        )
+    assert (
+        repository.consume_passkey_challenge(
+            later.id,
+            ceremony=PasskeyCeremony.AUTHENTICATION,
+            user_id=None,
+            now=expires,
+        )
+        == later
+    )
+
+
+def test_passkey_challenge_is_consumed_only_once(
+    repository: IdentityRepository,
+) -> None:
+    challenge = repository.add_passkey_challenge(
+        PasskeyChallenge(
+            ceremony=PasskeyCeremony.AUTHENTICATION,
+            challenge="race",
+            created_at=NOW,
+            expires_at=NOW + timedelta(minutes=5),
+        )
+    )
+    barrier = Barrier(WORKERS)
+
+    def consume(_: int) -> bool:
+        barrier.wait()
+        try:
+            repository.consume_passkey_challenge(
+                challenge.id,
+                ceremony=PasskeyCeremony.AUTHENTICATION,
+                user_id=None,
+                now=NOW,
+            )
+        except PasskeyChallengeNotFoundError:
+            return False
+        return True
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as pool:
+        results = list(pool.map(consume, range(WORKERS)))
+
+    assert results.count(True) == 1

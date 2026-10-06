@@ -1,6 +1,10 @@
 import { useMemo } from "react";
-import { getAuthenticatedUserProfile } from "@features/auth/lib/auth-session";
+import {
+  getAuthTokens,
+  getAuthenticatedUserProfile,
+} from "@features/auth/lib/auth-session";
 import type { ProfileUser } from "./profile/types";
+import { PasskeysCard } from "./profile/components/passkeys-card";
 import { ProfileGeneralTab } from "./profile/components/profile-general-tab";
 
 const LOCAL_DEV_PROFILE: ProfileUser = {
@@ -13,6 +17,8 @@ const LOCAL_DEV_PROFILE: ProfileUser = {
 
 export default function Profile() {
   const authUser = useMemo(() => getAuthenticatedUserProfile(), []);
+  // Passkeys belong to first-party accounts, not dev or auth-disabled sessions.
+  const hasAccount = useMemo(() => getAuthTokens() !== null, []);
   const user = useMemo<ProfileUser>(() => {
     if (!authUser) {
       return LOCAL_DEV_PROFILE;
@@ -36,6 +42,7 @@ export default function Profile() {
           <h2 className="text-3xl font-bold tracking-tight">Profile</h2>
         </div>
         <ProfileGeneralTab user={user} />
+        {hasAccount && <PasskeysCard email={authUser?.email ?? null} />}
       </div>
     </main>
   );

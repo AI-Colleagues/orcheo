@@ -43,7 +43,8 @@ Studio connects to the Orcheo backend API. Configure the connection via environm
 # Backend API URL
 VITE_ORCHEO_BACKEND_URL=http://localhost:2025
 
-# Authentication — first-party passwordless email login is on by default.
+# Authentication — first-party passwordless email login (emailed codes, plus
+# passkeys added from Profile) is on by default.
 # Set this to true to bypass the login gate for local/self-host dev.
 VITE_ORCHEO_AUTH_DISABLED=false
 ```
