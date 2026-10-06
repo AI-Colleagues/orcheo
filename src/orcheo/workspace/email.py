@@ -1,7 +1,8 @@
 """Transactional email ports, a logging default, and an SMTP sender.
 
-The transactional email abstraction is shared by two callers: workspace
-invitations and first-party sign-in codes. Production deployments use the
+The transactional email abstraction is shared by workspace invitations,
+first-party sign-in codes, and passkey security notices. Production
+deployments use the
 :class:`SmtpEmailSender`; local/self-host setups fall back to the
 :class:`LoggingInvitationEmailSender`, which logs the link/code instead of
 delivering email. SMTP is the sole production transport.
@@ -14,7 +15,7 @@ import smtplib
 from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 __all__ = [
@@ -24,11 +25,14 @@ __all__ = [
     "InvitationEmail",
     "InvitationEmailSender",
     "LoggingInvitationEmailSender",
+    "PasskeyNoticeEmail",
+    "PasskeyNoticeEmailSender",
     "RenderedEmail",
     "SmtpEmailSender",
     "SmtpSettings",
     "TransactionalEmailSender",
     "build_email_sender",
+    "render_passkey_notice_email",
     "render_sign_in_code_email",
 ]
 
@@ -58,6 +62,16 @@ class AuthChallengeEmail:
     expires_in_minutes: int
 
 
+@dataclass(frozen=True)
+class PasskeyNoticeEmail:
+    """Security notice that a passkey was added to or removed from an account."""
+
+    to: str
+    passkey_name: str
+    action: Literal["added", "removed"]
+    occurred_at: datetime
+
+
 class InvitationEmailSender(Protocol):
     """Port for delivering workspace invitation emails."""
 
@@ -72,10 +86,17 @@ class AuthChallengeEmailSender(Protocol):
         """Deliver a single sign-in code email."""
 
 
+class PasskeyNoticeEmailSender(Protocol):
+    """Port for delivering passkey security notices."""
+
+    def send_passkey_notice(self, email: PasskeyNoticeEmail) -> None:
+        """Deliver a single passkey security notice."""
+
+
 class TransactionalEmailSender(
-    InvitationEmailSender, AuthChallengeEmailSender, Protocol
+    InvitationEmailSender, AuthChallengeEmailSender, PasskeyNoticeEmailSender, Protocol
 ):
-    """Combined transactional email port covering invitations and challenges."""
+    """Combined transactional email port for invitations, codes and notices."""
 
 
 class LoggingInvitationEmailSender:
@@ -104,6 +125,16 @@ class LoggingInvitationEmailSender:
             email.to,
             email.expires_in_minutes,
             email.otp_code,
+        )
+
+    def send_passkey_notice(self, email: PasskeyNoticeEmail) -> None:
+        """Log the passkey security notice."""
+        logger.info(
+            "Passkey %r was %s for %s at %s",
+            email.passkey_name,
+            email.action,
+            email.to,
+            email.occurred_at.isoformat(),
         )
 
 
@@ -183,6 +214,51 @@ def render_sign_in_code_email(email: AuthChallengeEmail) -> RenderedEmail:
     )
 
 
+def render_passkey_notice_email(email: PasskeyNoticeEmail) -> RenderedEmail:
+    """Build the security notice for a passkey being added or removed.
+
+    The account owner may not have made the change themselves, so the mail
+    says what to do if they did not.
+    """
+    added = email.action == "added"
+    change = "added to" if added else "removed from"
+    when = email.occurred_at.strftime("%Y-%m-%d %H:%M UTC")
+    lead = (
+        f'The passkey "{email.passkey_name}" was {change} your Orcheo account '
+        f"on {when}."
+    )
+    advice = (
+        "If you did not do this, sign in with a code sent to this address, "
+        "remove any passkeys you do not recognize from your profile, and sign "
+        "out to end every session."
+    )
+    body = f"""<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:0;background:{_EMAIL_SURFACE};">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_EMAIL_SURFACE};padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;padding:32px;font-family:{_EMAIL_FONT};color:{_EMAIL_INK};">
+            <tr>
+              <td style="font-size:16px;line-height:1.5;padding-bottom:16px;">{html.escape(lead)}</td>
+            </tr>
+            <tr>
+              <td style="font-size:13px;line-height:1.6;color:{_EMAIL_MUTED};">{html.escape(advice)}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""  # noqa: E501 - inline email markup
+    return RenderedEmail(
+        subject=f"A passkey was {change} your Orcheo account",
+        text=f"{lead}\n\n{advice}",
+        html=body,
+    )
+
+
 @dataclass(frozen=True)
 class SmtpSettings:
     """Connection settings for the SMTP transactional email transport."""
@@ -199,8 +275,8 @@ class SmtpSettings:
 class SmtpEmailSender:
     """Deliver transactional email over SMTP (the production transport).
 
-    Implements both the invitation and auth-challenge ports. Raises on a hard
-    SMTP failure so the calling service surfaces delivery problems.
+    Implements the invitation, auth-challenge and passkey-notice ports. Raises
+    on a hard SMTP failure so the calling service surfaces delivery problems.
     """
 
     def __init__(self, settings: SmtpSettings) -> None:
@@ -215,6 +291,11 @@ class SmtpEmailSender:
     def send_auth_challenge(self, email: AuthChallengeEmail) -> None:
         """Send a passwordless auth challenge email over SMTP."""
         rendered = render_sign_in_code_email(email)
+        self._send(email.to, rendered.subject, rendered.html, text_body=rendered.text)
+
+    def send_passkey_notice(self, email: PasskeyNoticeEmail) -> None:
+        """Send a passkey security notice over SMTP."""
+        rendered = render_passkey_notice_email(email)
         self._send(email.to, rendered.subject, rendered.html, text_body=rendered.text)
 
     def _send(

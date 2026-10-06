@@ -5,6 +5,8 @@ stable internal identity keyed by a verified, normalized email; workspace
 memberships are re-keyed onto ``User.id`` by the cutover backfill. An
 ``AuthEmailChallenge`` is a single-use emailed sign-in code, and an
 ``AuthSession`` is a rotating refresh-token record backing a logged-in session.
+A ``Passkey`` is a WebAuthn credential a signed-in user added as a second way
+to sign in, and a ``PasskeyChallenge`` backs one passkey ceremony.
 """
 
 from __future__ import annotations
@@ -23,6 +25,9 @@ __all__ = [
     "ChallengePurpose",
     "OAuthAuthorizationRequest",
     "OAuthClient",
+    "Passkey",
+    "PasskeyCeremony",
+    "PasskeyChallenge",
     "User",
     "UserStatus",
     "normalize_email",
@@ -163,3 +168,54 @@ class OAuthAuthorizationRequest(OrcheoBaseModel):
     def is_pending(self, *, now: datetime) -> bool:
         """Return True while the request still awaits the user's decision."""
         return self.decided_at is None and now < self.expires_at
+
+
+class PasskeyCeremony(str, Enum):
+    """The WebAuthn ceremony a passkey challenge was issued for."""
+
+    REGISTRATION = "registration"
+    AUTHENTICATION = "authentication"
+
+
+class PasskeyChallenge(OrcheoBaseModel):
+    """Single-use challenge backing one passkey (WebAuthn) ceremony.
+
+    The challenge is sent to the browser and signed by the authenticator, so it
+    is stored as issued (base64url). Registration challenges are bound to the
+    signed-in user adding a passkey; sign-in challenges are not, because passkey
+    sign-in starts before the account is known.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    ceremony: PasskeyCeremony
+    challenge: str
+    user_id: UUID | None = None
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime
+
+    def is_expired(self, *, now: datetime) -> bool:
+        """Return True when the challenge has passed its TTL."""
+        return now >= self.expires_at
+
+
+class Passkey(OrcheoBaseModel):
+    """A WebAuthn credential (passkey) registered to a user.
+
+    ``credential_id`` is the authenticator-assigned credential id and
+    ``public_key`` the COSE public key that verifies sign-in assertions, both
+    base64url-encoded. ``sign_count`` is the last signature counter the
+    authenticator reported; synced passkeys always report 0.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    user_id: UUID
+    credential_id: str
+    public_key: str
+    sign_count: int = 0
+    transports: list[str] = Field(default_factory=list)
+    aaguid: str | None = None
+    backup_eligible: bool = False
+    backed_up: bool = False
+    name: str
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_used_at: datetime | None = None

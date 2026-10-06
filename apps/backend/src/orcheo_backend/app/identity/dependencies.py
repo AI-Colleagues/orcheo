@@ -15,7 +15,9 @@ from orcheo_backend.app.email_config import build_transactional_email_sender
 from orcheo_backend.app.identity.config import (
     DEFAULT_FIRST_PARTY_ISSUER,
     IdentityConfig,
+    resolve_passkey_relying_party,
 )
+from orcheo_backend.app.identity.passkeys import PasskeyService
 from orcheo_backend.app.identity.service import IdentityService
 
 
@@ -24,19 +26,23 @@ TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 __all__ = [
     "IdentityServiceDep",
+    "PasskeyServiceDep",
     "get_client_ip",
     "get_identity_config",
     "get_identity_repository",
     "get_identity_service",
+    "get_passkey_service",
     "reset_identity_state",
     "set_identity_repository",
     "set_identity_service",
+    "set_passkey_service",
     "trusted_proxy_enabled",
 ]
 
 
 _identity_repository_ref: dict[str, IdentityRepository | None] = {"repository": None}
 _identity_service_ref: dict[str, IdentityService | None] = {"service": None}
+_passkey_service_ref: dict[str, PasskeyService | None] = {"service": None}
 
 
 def set_identity_repository(repository: IdentityRepository | None) -> None:
@@ -52,10 +58,16 @@ def set_identity_service(service: IdentityService | None) -> None:
         _identity_repository_ref["repository"] = service.repository
 
 
+def set_passkey_service(service: PasskeyService | None) -> None:
+    """Override the passkey service singleton (primarily for testing)."""
+    _passkey_service_ref["service"] = service
+
+
 def reset_identity_state() -> None:
     """Drop cached identity singletons; refreshes settings."""
     _identity_repository_ref["repository"] = None
     _identity_service_ref["service"] = None
+    _passkey_service_ref["service"] = None
     get_settings(refresh=True)
 
 
@@ -95,6 +107,12 @@ def get_identity_config() -> IdentityConfig:
     issuer = auth_settings.issuer or DEFAULT_FIRST_PARTY_ISSUER
     audience = auth_settings.audiences[0] if auth_settings.audiences else None
     verify_base_url = str(settings.get("STUDIO_URL") or "http://localhost:2026")
+    rp_id_override = settings.get("AUTH_WEBAUTHN_RP_ID")
+    webauthn_rp_id, webauthn_origins = resolve_passkey_relying_party(
+        verify_base_url,
+        rp_id=str(rp_id_override) if rp_id_override else None,
+        origins=settings.get("AUTH_WEBAUTHN_ORIGINS"),
+    )
     return IdentityConfig(
         jwt_secret=jwt_secret,
         issuer=issuer,
@@ -108,6 +126,8 @@ def get_identity_config() -> IdentityConfig:
         allowed_email_domains=parse_email_domains(
             settings.get("AUTH_ALLOWED_EMAIL_DOMAINS")
         ),
+        webauthn_rp_id=webauthn_rp_id,
+        webauthn_origins=webauthn_origins,
     )
 
 
@@ -121,6 +141,18 @@ def get_identity_service() -> IdentityService:
             config=get_identity_config(),
         )
         _identity_service_ref["service"] = service
+    return service
+
+
+def get_passkey_service() -> PasskeyService:
+    """Return the passkey service bound to the current identity service."""
+    identity = get_identity_service()
+    service = _passkey_service_ref.get("service")
+    if service is None or service.identity is not identity:
+        service = PasskeyService(
+            identity, notice_sender=build_transactional_email_sender()
+        )
+        _passkey_service_ref["service"] = service
     return service
 
 
@@ -150,3 +182,4 @@ def get_client_ip(request: Request) -> str | None:
 
 
 IdentityServiceDep = Annotated[IdentityService, Depends(get_identity_service)]
+PasskeyServiceDep = Annotated[PasskeyService, Depends(get_passkey_service)]

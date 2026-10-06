@@ -74,12 +74,15 @@ def mint_access_token(
     now: datetime,
     scopes: Sequence[str] = DEFAULT_USER_SCOPES,
     extra_claims: Mapping[str, Any] | None = None,
+    auth_time: datetime | None = None,
 ) -> tuple[str, int]:
     """Mint an HS256 access token for ``user`` and return ``(token, expires_in)``.
 
     The claim set matches the contract validated by ``authentication/``:
     ``sub`` is the internal user id, plus ``email`` / ``email_verified`` /
     ``name`` and the standard ``iss`` / ``aud`` / ``iat`` / ``exp``.
+    ``auth_time`` (when the user signed in, kept across refreshes) lets
+    sensitive actions such as adding a passkey require a recent sign-in.
     """
     expires_at = now + timedelta(seconds=ttl_seconds)
     claims: dict[str, Any] = {
@@ -95,6 +98,8 @@ def mint_access_token(
     }
     if audience:
         claims["aud"] = audience
+    if auth_time is not None:
+        claims["auth_time"] = int(auth_time.timestamp())
     if extra_claims:
         claims.update(extra_claims)
     token = jwt.encode(claims, secret, algorithm="HS256")

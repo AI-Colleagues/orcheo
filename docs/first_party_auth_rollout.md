@@ -56,6 +56,57 @@ Because HS256 is symmetric, there is no overlap window where both the old and
 new secret validate — rotate during a low-traffic window, or accept a brief
 wave of refreshes. Keep the secret only in the secret store; never commit it.
 
+## Passkeys
+
+Signed-in users can add passkeys (WebAuthn credentials) from **Profile →
+Passkeys**, or from the offer Studio shows after an emailed-code sign-in on a
+device that can create one. Passkeys are a second way to sign in to an existing
+account, not a separate one:
+
+- **Sign-in is usernameless.** Studio offers saved passkeys in the email
+  field's autofill and behind a "Sign in with a passkey" button. Nothing about
+  the account is sent first, so `/api/auth/passkey/login/options` reveals
+  nothing about which accounts exist. A verified passkey ends in the same
+  session and tokens as an emailed code.
+- **Email stays the root of identity.** Accounts are still created only by
+  email verification, and emailed codes keep working as the recovery path, so
+  removing a passkey can never lock anyone out. This also means passkeys are not
+  a second factor: anyone who can read the mailbox can still sign in.
+- **Adding a passkey needs a recent sign-in.** Access tokens carry `auth_time`
+  (when the session signed in, kept across refreshes). Adding a passkey more
+  than 10 minutes after signing in returns
+  `403 auth.reauthentication_required`, and Studio asks the user to confirm
+  with an emailed code. Each added or removed passkey also emails a security
+  notice to the account owner.
+- **Passkeys survive sign-out.** "Sign out" revokes sessions, not passkeys;
+  users remove passkeys from their profile.
+
+**Configuration.** The relying party is derived from `ORCHEO_STUDIO_URL`: its
+host is the RP ID and its origin is the only origin allowed to use passkeys,
+because the browser reports the origin of the Studio page. Override with
+`ORCHEO_AUTH_WEBAUTHN_RP_ID` and `ORCHEO_AUTH_WEBAUTHN_ORIGINS` (see
+[Environment Variables](environment_variables.md)). Origins are matched
+exactly, never by suffix, so other subdomains of the RP ID (such as hosted
+apps) cannot complete a passkey ceremony. Browsers only allow passkeys over
+https or on `http://localhost` (not `127.0.0.1`), and never for IP addresses;
+with such a `ORCHEO_STUDIO_URL` the backend turns passkeys off and Studio shows
+only emailed-code sign-in.
+
+**Choose the RP ID once.** Passkeys are bound to the RP ID they were created
+for. Changing the RP ID (including by moving Studio to another host) makes
+every registered passkey stop working; users then sign in with an emailed code
+and add new passkeys.
+
+**Storage.** Passkeys live in `auth_passkeys` (public keys only) and ceremony
+challenges in `auth_passkey_challenges`. Challenges are single-use, expire after
+five minutes, and are consumed before a response is verified, so they work
+across backend replicas. Both tables are created automatically; deleting a user
+deletes their passkeys.
+
+**Local testing.** Open Studio at `http://localhost:2026` and use Chrome
+DevTools → More tools → WebAuthn to add a virtual authenticator (CTAP2,
+internal, resident keys and user verification enabled).
+
 ## Future: RS256 / JWKS (optional)
 
 The backend retains a generic, **dormant** OIDC relying-party layer

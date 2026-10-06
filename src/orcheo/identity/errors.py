@@ -14,6 +14,10 @@ __all__ = [
     "IdentitySessionNotFoundError",
     "OAuthAuthorizationRequestNotFoundError",
     "OAuthClientNotFoundError",
+    "PasskeyAlreadyRegisteredError",
+    "PasskeyChallengeNotFoundError",
+    "PasskeyError",
+    "PasskeyNotFoundError",
     "UserNotFoundError",
 ]
 
@@ -65,3 +69,19 @@ class OAuthClientNotFoundError(IdentityError):
 
 class OAuthAuthorizationRequestNotFoundError(IdentityError):
     """Raised when an OAuth authorization request or code cannot be located."""
+
+
+class PasskeyError(IdentityError):
+    """Base class for passkey storage errors."""
+
+
+class PasskeyNotFoundError(PasskeyError):
+    """Raised when a passkey cannot be located (for its owner)."""
+
+
+class PasskeyAlreadyRegisteredError(PasskeyError):
+    """Raised when registering a credential id that is already registered."""
+
+
+class PasskeyChallengeNotFoundError(PasskeyError):
+    """Raised when a passkey challenge is unknown, expired, or already used."""

@@ -30,7 +30,8 @@ The authentication system supports two primary methods:
 For interactive users, JWTs are minted by Orcheo's **first-party passwordless
 email identity provider** (one-time sign-in codes): the identity service signs HS256
 access tokens with `ORCHEO_AUTH_JWT_SECRET` and the backend accepts only the
-configured `ORCHEO_AUTH_ISSUER`. See
+configured `ORCHEO_AUTH_ISSUER`. Signed-in users can also add **passkeys** and
+sign in with them instead of a code. See
 [First-party authentication: rollout & operations](first_party_auth_rollout.md)
 for the production setup; the generic JWKS/RS256 material below is retained for
 the dormant external-IdP path.

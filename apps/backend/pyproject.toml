@@ -13,7 +13,9 @@ dependencies = [
   "fastmcp>=3.4.7,<4",
   # OAuth protocol types (AuthorizationParams, OAuthClientInformationFull, ...)
   # that FastMCP builds on but does not re-export.
-  "mcp>=1.24.0,<2"
+  "mcp>=1.24.0,<2",
+  # WebAuthn ceremonies (passkey registration and sign-in verification).
+  "webauthn>=3.0.1,<4"
 ]
 description = "Deployment wrapper around the Orcheo FastAPI application"
 name = "orcheo-backend"

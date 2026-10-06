@@ -17,6 +17,9 @@ from orcheo.identity.errors import (
     IdentitySessionNotFoundError,
     OAuthAuthorizationRequestNotFoundError,
     OAuthClientNotFoundError,
+    PasskeyAlreadyRegisteredError,
+    PasskeyChallengeNotFoundError,
+    PasskeyNotFoundError,
     UserNotFoundError,
 )
 from orcheo.identity.models import (
@@ -25,6 +28,9 @@ from orcheo.identity.models import (
     ChallengePurpose,
     OAuthAuthorizationRequest,
     OAuthClient,
+    Passkey,
+    PasskeyCeremony,
+    PasskeyChallenge,
     User,
     UserStatus,
     normalize_email,
@@ -572,6 +578,175 @@ class PostgresIdentityRepository:
             raise OAuthAuthorizationRequestNotFoundError(request_id)
         return self._row_to_authorization_request(row)
 
+    # -- passkeys ------------------------------------------------------------
+
+    def add_passkey(self, passkey: Passkey) -> Passkey:
+        """Persist a newly registered passkey; raises on a duplicate credential."""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO auth_passkeys (
+                        id, user_id, credential_id, public_key, sign_count,
+                        transports, aaguid, backup_eligible, backed_up, name,
+                        created_at, last_used_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(passkey.id),
+                        str(passkey.user_id),
+                        passkey.credential_id,
+                        passkey.public_key,
+                        passkey.sign_count,
+                        Jsonb(passkey.transports),
+                        passkey.aaguid,
+                        passkey.backup_eligible,
+                        passkey.backed_up,
+                        passkey.name,
+                        passkey.created_at,
+                        passkey.last_used_at,
+                    ),
+                )
+        except UniqueViolation as exc:
+            raise PasskeyAlreadyRegisteredError(passkey.credential_id) from exc
+        return passkey
+
+    def list_passkeys(self, user_id: UUID) -> list[Passkey]:
+        """Return a user's passkeys, oldest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM auth_passkeys
+                 WHERE user_id = %s
+                 ORDER BY created_at, id
+                """,
+                (str(user_id),),
+            ).fetchall()
+        return [self._row_to_passkey(row) for row in rows]
+
+    def get_passkey_by_credential_id(self, credential_id: str) -> Passkey | None:
+        """Return the passkey registered under a credential id, or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM auth_passkeys WHERE credential_id = %s",
+                (credential_id,),
+            ).fetchone()
+        return None if row is None else self._row_to_passkey(row)
+
+    def record_passkey_use(
+        self,
+        passkey_id: UUID,
+        *,
+        sign_count: int,
+        backed_up: bool,
+        used_at: datetime,
+    ) -> Passkey:
+        """Record a verified sign-in; concurrent sign-ins never lower the count."""
+        return self._fetch_passkey(
+            """
+            UPDATE auth_passkeys
+               SET sign_count = GREATEST(sign_count, %s),
+                   backed_up = %s,
+                   last_used_at = %s
+             WHERE id = %s
+            RETURNING *
+            """,
+            (sign_count, backed_up, used_at, str(passkey_id)),
+            passkey_id,
+        )
+
+    def rename_passkey(self, user_id: UUID, passkey_id: UUID, name: str) -> Passkey:
+        """Rename one of a user's passkeys."""
+        return self._fetch_passkey(
+            """
+            UPDATE auth_passkeys
+               SET name = %s
+             WHERE id = %s
+               AND user_id = %s
+            RETURNING *
+            """,
+            (name, str(passkey_id), str(user_id)),
+            passkey_id,
+        )
+
+    def delete_passkey(self, user_id: UUID, passkey_id: UUID) -> Passkey:
+        """Delete one of a user's passkeys and return it."""
+        return self._fetch_passkey(
+            """
+            DELETE FROM auth_passkeys
+             WHERE id = %s
+               AND user_id = %s
+            RETURNING *
+            """,
+            (str(passkey_id), str(user_id)),
+            passkey_id,
+        )
+
+    def _fetch_passkey(
+        self, query: str, params: tuple[object, ...], passkey_id: UUID
+    ) -> Passkey:
+        with self._connect() as conn:
+            row = conn.execute(query, params).fetchone()
+        if row is None:
+            raise PasskeyNotFoundError(str(passkey_id))
+        return self._row_to_passkey(row)
+
+    def add_passkey_challenge(self, challenge: PasskeyChallenge) -> PasskeyChallenge:
+        """Persist a ceremony challenge, purging challenges that have expired."""
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM auth_passkey_challenges WHERE expires_at <= %s",
+                (challenge.created_at,),
+            )
+            conn.execute(
+                """
+                INSERT INTO auth_passkey_challenges (
+                    id, ceremony, challenge, user_id, created_at, expires_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    str(challenge.id),
+                    challenge.ceremony.value,
+                    challenge.challenge,
+                    None if challenge.user_id is None else str(challenge.user_id),
+                    challenge.created_at,
+                    challenge.expires_at,
+                ),
+            )
+        return challenge
+
+    def consume_passkey_challenge(
+        self,
+        challenge_id: UUID,
+        *,
+        ceremony: PasskeyCeremony,
+        user_id: UUID | None,
+        now: datetime,
+    ) -> PasskeyChallenge:
+        """Atomically remove and return an unexpired challenge."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                DELETE FROM auth_passkey_challenges
+                 WHERE id = %s
+                   AND ceremony = %s
+                   AND user_id IS NOT DISTINCT FROM %s::uuid
+                   AND expires_at > %s
+                RETURNING *
+                """,
+                (
+                    str(challenge_id),
+                    ceremony.value,
+                    None if user_id is None else str(user_id),
+                    now,
+                ),
+            ).fetchone()
+        if row is None:
+            raise PasskeyChallengeNotFoundError(str(challenge_id))
+        return self._row_to_passkey_challenge(row)
+
     # -- row mappers ---------------------------------------------------------
 
     @staticmethod
@@ -657,4 +832,34 @@ class PostgresIdentityRepository:
             code_hash=None if row.get("code_hash") is None else str(row["code_hash"]),
             code_expires_at=_optional_time("code_expires_at"),
             consumed_at=_optional_time("consumed_at"),
+        )
+
+    @staticmethod
+    def _row_to_passkey(row: dict[str, object]) -> Passkey:
+        last_used_at = row.get("last_used_at")
+        return Passkey(
+            id=UUID(str(row["id"])),
+            user_id=UUID(str(row["user_id"])),
+            credential_id=str(row["credential_id"]),
+            public_key=str(row["public_key"]),
+            sign_count=int(cast(int, row["sign_count"])),
+            transports=[str(item) for item in cast(list[Any], row["transports"])],
+            aaguid=None if row.get("aaguid") is None else str(row["aaguid"]),
+            backup_eligible=bool(row["backup_eligible"]),
+            backed_up=bool(row["backed_up"]),
+            name=str(row["name"]),
+            created_at=cast(datetime, row["created_at"]),
+            last_used_at=cast(datetime, last_used_at) if last_used_at else None,
+        )
+
+    @staticmethod
+    def _row_to_passkey_challenge(row: dict[str, object]) -> PasskeyChallenge:
+        user_id = row.get("user_id")
+        return PasskeyChallenge(
+            id=UUID(str(row["id"])),
+            ceremony=PasskeyCeremony(str(row["ceremony"])),
+            challenge=str(row["challenge"]),
+            user_id=None if user_id is None else UUID(str(user_id)),
+            created_at=cast(datetime, row["created_at"]),
+            expires_at=cast(datetime, row["expires_at"]),
         )

@@ -467,6 +467,7 @@ Use this recipe when the host is not directly reachable or when you intentionall
    ```env
    ORCHEO_PUBLIC_INGRESS_ENABLED=false
    ORCHEO_API_URL=https://orcheo.example.com
+   ORCHEO_STUDIO_URL=https://orcheo-studio.example.com
    VITE_ORCHEO_BACKEND_URL=https://orcheo.example.com
    ORCHEO_CORS_ALLOW_ORIGINS=https://orcheo-studio.example.com
    ORCHEO_CHATKIT_PUBLIC_BASE_URL=https://orcheo-studio.example.com
@@ -483,7 +484,7 @@ Use this recipe when the host is not directly reachable or when you intentionall
    curl https://orcheo.example.com/api/system/info
    ```
 
-The important distinction is that backend-facing values use the backend hostname, while browser-origin values use the Studio hostname. If these are collapsed back to `localhost` values, browsers will fail preflight requests and the backend will log `OPTIONS ... 400`.
+The important distinction is that backend-facing values use the backend hostname, while browser-origin values use the Studio hostname. Passkeys are a browser-origin value too: they are verified against `ORCHEO_STUDIO_URL`, so it must be the Studio hostname. If these are collapsed back to `localhost` values, browsers will fail preflight requests and the backend will log `OPTIONS ... 400`.
 
 ## Managed Hosting (PostgreSQL, async pool)
 

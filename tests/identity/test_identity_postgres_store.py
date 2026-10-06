@@ -17,6 +17,12 @@ from orcheo.identity import (
     ChallengePurpose,
     IdentityChallengeNotFoundError,
     IdentitySessionNotFoundError,
+    Passkey,
+    PasskeyAlreadyRegisteredError,
+    PasskeyCeremony,
+    PasskeyChallenge,
+    PasskeyChallengeNotFoundError,
+    PasskeyNotFoundError,
     PostgresIdentityRepository,
     User,
     UserNotFoundError,
@@ -495,3 +501,183 @@ def test_postgres_rotate_session_rejects_a_lost_compare_and_swap(fake_connect) -
             now=datetime(2026, 1, 1, tzinfo=UTC),
         )
     assert connection.rollbacks == rollbacks + 1
+
+
+def _passkey_row(passkey: Passkey) -> dict[str, Any]:
+    return {
+        "id": passkey.id,
+        "user_id": passkey.user_id,
+        "credential_id": passkey.credential_id,
+        "public_key": passkey.public_key,
+        "sign_count": passkey.sign_count,
+        "transports": list(passkey.transports),
+        "aaguid": passkey.aaguid,
+        "backup_eligible": passkey.backup_eligible,
+        "backed_up": passkey.backed_up,
+        "name": passkey.name,
+        "created_at": passkey.created_at,
+        "last_used_at": passkey.last_used_at,
+    }
+
+
+def _passkey_challenge_row(challenge: PasskeyChallenge) -> dict[str, Any]:
+    return {
+        "id": challenge.id,
+        "ceremony": challenge.ceremony.value,
+        "challenge": challenge.challenge,
+        "user_id": challenge.user_id,
+        "created_at": challenge.created_at,
+        "expires_at": challenge.expires_at,
+    }
+
+
+def test_postgres_passkey_roundtrip(fake_connect) -> None:
+    """Passkeys persist through the expected statements and map back."""
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(dsn)
+    connection.queries.clear()  # drop schema setup
+    passkey = Passkey(
+        user_id=uuid4(),
+        credential_id="cred-1",
+        public_key="key-1",
+        sign_count=3,
+        transports=["internal", "hybrid"],
+        aaguid="fbfc3007-154e-4ecc-8c0b-6e020557d7bd",
+        backup_eligible=True,
+        backed_up=True,
+        name="Laptop",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        last_used_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    used = passkey.model_copy(update={"sign_count": 4})
+    renamed = passkey.model_copy(update={"name": "Desk"})
+    connection._responses = [
+        {},  # add_passkey
+        [_passkey_row(passkey)],  # list_passkeys
+        {"row": _passkey_row(passkey)},  # get_passkey_by_credential_id
+        {"row": None},  # get_passkey_by_credential_id (unknown)
+        {"row": _passkey_row(used)},  # record_passkey_use
+        {"row": _passkey_row(renamed)},  # rename_passkey
+        {"row": _passkey_row(renamed)},  # delete_passkey
+    ]
+
+    assert repo.add_passkey(passkey) == passkey
+    assert repo.list_passkeys(passkey.user_id) == [passkey]
+    assert repo.get_passkey_by_credential_id("cred-1") == passkey
+    assert repo.get_passkey_by_credential_id("unknown") is None
+    assert (
+        repo.record_passkey_use(
+            passkey.id,
+            sign_count=4,
+            backed_up=True,
+            used_at=datetime(2026, 1, 3, tzinfo=UTC),
+        )
+        == used
+    )
+    assert repo.rename_passkey(passkey.user_id, passkey.id, "Desk") == renamed
+    assert repo.delete_passkey(passkey.user_id, passkey.id) == renamed
+
+    queries = [query for query, _ in connection.queries if "auth_passkeys" in query]
+    insert_params = next(
+        params
+        for query, params in connection.queries
+        if query.startswith("INSERT INTO auth_passkeys")
+    )
+    assert insert_params[5].obj == ["internal", "hybrid"]
+    assert "GREATEST(sign_count, %s)" in queries[4]
+    assert "AND user_id = %s" in queries[5]
+    assert queries[6].startswith("DELETE FROM auth_passkeys")
+
+
+def test_postgres_passkey_duplicate_and_missing_paths(fake_connect) -> None:
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(dsn)
+    passkey = Passkey(
+        user_id=uuid4(), credential_id="cred-1", public_key="key", name="Key"
+    )
+    connection._responses = [
+        UniqueViolation("duplicate key"),
+        {"row": None},  # record_passkey_use
+        {"row": None},  # rename_passkey
+        {"row": None},  # delete_passkey
+    ]
+
+    with pytest.raises(PasskeyAlreadyRegisteredError):
+        repo.add_passkey(passkey)
+    with pytest.raises(PasskeyNotFoundError):
+        repo.record_passkey_use(
+            passkey.id, sign_count=1, backed_up=False, used_at=passkey.created_at
+        )
+    with pytest.raises(PasskeyNotFoundError):
+        repo.rename_passkey(passkey.user_id, passkey.id, "New")
+    with pytest.raises(PasskeyNotFoundError):
+        repo.delete_passkey(passkey.user_id, passkey.id)
+
+
+def test_postgres_passkey_challenges(fake_connect) -> None:
+    """Challenges purge expired rows on insert and are consumed by DELETE."""
+    connection, dsn = fake_connect
+    repo = PostgresIdentityRepository(dsn)
+    connection.queries.clear()  # drop schema setup
+    created = datetime(2026, 1, 1, tzinfo=UTC)
+    sign_in = PasskeyChallenge(
+        ceremony=PasskeyCeremony.AUTHENTICATION,
+        challenge="abc",
+        created_at=created,
+        expires_at=datetime(2026, 1, 1, 0, 5, tzinfo=UTC),
+    )
+    registration = sign_in.model_copy(
+        update={"ceremony": PasskeyCeremony.REGISTRATION, "user_id": uuid4()}
+    )
+    connection._responses = [
+        {},  # purge expired
+        {},  # insert sign-in challenge
+        {},  # purge expired
+        {},  # insert registration challenge
+        {"row": _passkey_challenge_row(sign_in)},
+        {"row": _passkey_challenge_row(registration)},
+        {"row": None},
+    ]
+
+    assert repo.add_passkey_challenge(sign_in) == sign_in
+    assert repo.add_passkey_challenge(registration) == registration
+    assert (
+        repo.consume_passkey_challenge(
+            sign_in.id,
+            ceremony=PasskeyCeremony.AUTHENTICATION,
+            user_id=None,
+            now=created,
+        )
+        == sign_in
+    )
+    assert (
+        repo.consume_passkey_challenge(
+            registration.id,
+            ceremony=PasskeyCeremony.REGISTRATION,
+            user_id=registration.user_id,
+            now=created,
+        )
+        == registration
+    )
+    with pytest.raises(PasskeyChallengeNotFoundError):
+        repo.consume_passkey_challenge(
+            sign_in.id,
+            ceremony=PasskeyCeremony.AUTHENTICATION,
+            user_id=None,
+            now=created,
+        )
+
+    statements = [
+        (query, params)
+        for query, params in connection.queries
+        if "auth_passkey_challenges" in query
+    ]
+    assert statements[0] == (
+        "DELETE FROM auth_passkey_challenges WHERE expires_at <= %s",
+        (created,),
+    )
+    assert statements[1][1][3] is None
+    assert statements[3][1][3] == str(registration.user_id)
+    assert "IS NOT DISTINCT FROM %s::uuid" in statements[4][0]
+    assert statements[4][1][2] is None
+    assert statements[5][1][2] == str(registration.user_id)

@@ -11,6 +11,9 @@ from orcheo.identity.errors import (
     IdentitySessionNotFoundError,
     OAuthAuthorizationRequestNotFoundError,
     OAuthClientNotFoundError,
+    PasskeyAlreadyRegisteredError,
+    PasskeyChallengeNotFoundError,
+    PasskeyNotFoundError,
     UserNotFoundError,
 )
 from orcheo.identity.models import (
@@ -18,6 +21,9 @@ from orcheo.identity.models import (
     AuthSession,
     OAuthAuthorizationRequest,
     OAuthClient,
+    Passkey,
+    PasskeyCeremony,
+    PasskeyChallenge,
     User,
     normalize_email,
 )
@@ -31,7 +37,7 @@ __all__ = [
 
 
 class IdentityRepository(Protocol):
-    """Storage protocol for users, email challenges, and sessions."""
+    """Storage protocol for users, email challenges, sessions, and passkeys."""
 
     def create_user(self, user: User) -> User:
         """Persist a new user; raises on a duplicate email."""
@@ -131,6 +137,67 @@ class IdentityRepository(Protocol):
     ) -> OAuthAuthorizationRequest:
         """Atomically mark an unconsumed authorization code as consumed."""
 
+    def add_passkey(self, passkey: Passkey) -> Passkey:
+        """Persist a newly registered passkey.
+
+        Raises:
+            PasskeyAlreadyRegisteredError: If the credential id is registered.
+        """
+
+    def list_passkeys(self, user_id: UUID) -> list[Passkey]:
+        """Return a user's passkeys, oldest first."""
+
+    def get_passkey_by_credential_id(self, credential_id: str) -> Passkey | None:
+        """Return the passkey registered under a credential id, or None."""
+
+    def record_passkey_use(
+        self,
+        passkey_id: UUID,
+        *,
+        sign_count: int,
+        backed_up: bool,
+        used_at: datetime,
+    ) -> Passkey:
+        """Record a verified sign-in; the stored counter never moves backwards.
+
+        Raises:
+            PasskeyNotFoundError: If the passkey no longer exists.
+        """
+
+    def rename_passkey(self, user_id: UUID, passkey_id: UUID, name: str) -> Passkey:
+        """Rename one of a user's passkeys.
+
+        Raises:
+            PasskeyNotFoundError: If the user has no such passkey.
+        """
+
+    def delete_passkey(self, user_id: UUID, passkey_id: UUID) -> Passkey:
+        """Delete one of a user's passkeys and return it.
+
+        Raises:
+            PasskeyNotFoundError: If the user has no such passkey.
+        """
+
+    def add_passkey_challenge(self, challenge: PasskeyChallenge) -> PasskeyChallenge:
+        """Persist a ceremony challenge, purging challenges that have expired."""
+
+    def consume_passkey_challenge(
+        self,
+        challenge_id: UUID,
+        *,
+        ceremony: PasskeyCeremony,
+        user_id: UUID | None,
+        now: datetime,
+    ) -> PasskeyChallenge:
+        """Atomically remove and return an unexpired challenge.
+
+        The challenge must have been issued for ``ceremony`` and to
+        ``user_id`` (None for sign-in challenges), so it can be used once.
+
+        Raises:
+            PasskeyChallengeNotFoundError: If no such challenge is still valid.
+        """
+
 
 class InMemoryIdentityRepository:
     """In-memory identity repository used for tests and embedded deployments."""
@@ -144,6 +211,8 @@ class InMemoryIdentityRepository:
         self._sessions: dict[UUID, AuthSession] = {}
         self._oauth_clients: dict[str, OAuthClient] = {}
         self._authorization_requests: dict[str, OAuthAuthorizationRequest] = {}
+        self._passkeys: dict[UUID, Passkey] = {}
+        self._passkey_challenges: dict[UUID, PasskeyChallenge] = {}
 
     def create_user(self, user: User) -> User:
         """Persist a new user; raises on a duplicate email."""
@@ -371,3 +440,104 @@ class InMemoryIdentityRepository:
         consumed = current.model_copy(update={"consumed_at": consumed_at})
         self._authorization_requests[request_id] = consumed
         return consumed
+
+    def add_passkey(self, passkey: Passkey) -> Passkey:
+        """Persist a newly registered passkey; raises on a duplicate credential."""
+        with self._lock:
+            if self.get_passkey_by_credential_id(passkey.credential_id) is not None:
+                raise PasskeyAlreadyRegisteredError(passkey.credential_id)
+            self._passkeys[passkey.id] = passkey
+            return passkey
+
+    def list_passkeys(self, user_id: UUID) -> list[Passkey]:
+        """Return a user's passkeys, oldest first."""
+        with self._lock:
+            owned = [p for p in self._passkeys.values() if p.user_id == user_id]
+        return sorted(owned, key=lambda p: (p.created_at, str(p.id)))
+
+    def get_passkey_by_credential_id(self, credential_id: str) -> Passkey | None:
+        """Return the passkey registered under a credential id, or None."""
+        with self._lock:
+            return next(
+                (
+                    passkey
+                    for passkey in self._passkeys.values()
+                    if passkey.credential_id == credential_id
+                ),
+                None,
+            )
+
+    def record_passkey_use(
+        self,
+        passkey_id: UUID,
+        *,
+        sign_count: int,
+        backed_up: bool,
+        used_at: datetime,
+    ) -> Passkey:
+        """Record a verified sign-in; the stored counter never moves backwards."""
+        with self._lock:
+            current = self._passkeys.get(passkey_id)
+            if current is None:
+                raise PasskeyNotFoundError(str(passkey_id))
+            updated = current.model_copy(
+                update={
+                    "sign_count": max(current.sign_count, sign_count),
+                    "backed_up": backed_up,
+                    "last_used_at": used_at,
+                }
+            )
+            self._passkeys[passkey_id] = updated
+            return updated
+
+    def rename_passkey(self, user_id: UUID, passkey_id: UUID, name: str) -> Passkey:
+        """Rename one of a user's passkeys."""
+        with self._lock:
+            renamed = self._owned_passkey(user_id, passkey_id).model_copy(
+                update={"name": name}
+            )
+            self._passkeys[passkey_id] = renamed
+            return renamed
+
+    def delete_passkey(self, user_id: UUID, passkey_id: UUID) -> Passkey:
+        """Delete one of a user's passkeys and return it."""
+        with self._lock:
+            removed = self._owned_passkey(user_id, passkey_id)
+            del self._passkeys[passkey_id]
+            return removed
+
+    def _owned_passkey(self, user_id: UUID, passkey_id: UUID) -> Passkey:
+        passkey = self._passkeys.get(passkey_id)
+        if passkey is None or passkey.user_id != user_id:
+            raise PasskeyNotFoundError(str(passkey_id))
+        return passkey
+
+    def add_passkey_challenge(self, challenge: PasskeyChallenge) -> PasskeyChallenge:
+        """Persist a ceremony challenge, purging challenges that have expired."""
+        with self._lock:
+            for challenge_id, existing in list(self._passkey_challenges.items()):
+                if existing.is_expired(now=challenge.created_at):
+                    del self._passkey_challenges[challenge_id]
+            self._passkey_challenges[challenge.id] = challenge
+            return challenge
+
+    def consume_passkey_challenge(
+        self,
+        challenge_id: UUID,
+        *,
+        ceremony: PasskeyCeremony,
+        user_id: UUID | None,
+        now: datetime,
+    ) -> PasskeyChallenge:
+        """Atomically remove and return an unexpired challenge."""
+        with self._lock:
+            challenge = self._passkey_challenges.get(challenge_id)
+            if (
+                challenge is None
+                or challenge.ceremony != ceremony
+                or challenge.user_id != user_id
+                or challenge.is_expired(now=now)
+            ):
+                raise PasskeyChallengeNotFoundError(str(challenge_id))
+            del self._passkey_challenges[challenge_id]
+            return challenge
