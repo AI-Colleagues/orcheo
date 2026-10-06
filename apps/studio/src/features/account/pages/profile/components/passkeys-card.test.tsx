@@ -401,6 +401,100 @@ describe("PasskeysCard", () => {
     expect(mocks.syncAcceptedPasskeys).not.toHaveBeenCalled();
   });
 
+  it("confirms identity before retrying removal of the selected passkey", async () => {
+    const phone = { ...laptop, id: "p-2", name: "Phone" };
+    const remaining = passkeyList({ passkeys: [phone] });
+    mocks.listPasskeys
+      .mockResolvedValueOnce(passkeyList({ passkeys: [laptop, phone] }))
+      .mockResolvedValueOnce(remaining);
+    mocks.deletePasskey
+      .mockRejectedValueOnce(reauthRequired())
+      .mockResolvedValueOnce(undefined);
+    const user = userEvent.setup();
+    render(<PasskeysCard email="alice@example.com" />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /remove laptop/i }),
+    );
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: /^remove$/i,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(/to remove a passkey/i),
+    ).toBeInTheDocument();
+    expect(mocks.syncAcceptedPasskeys).not.toHaveBeenCalled();
+    expect(mocks.listPasskeys).toHaveBeenCalledTimes(1);
+    await user.click(
+      within(dialog).getByRole("button", { name: /email me a code/i }),
+    );
+    await user.type(within(dialog).getByLabelText(/sign-in code/i), "123456");
+    await user.click(within(dialog).getByRole("button", { name: /confirm/i }));
+
+    await waitFor(() => {
+      expect(mocks.deletePasskey).toHaveBeenCalledTimes(2);
+      expect(mocks.syncAcceptedPasskeys).toHaveBeenCalledWith(remaining);
+    });
+    expect(mocks.deletePasskey.mock.calls).toEqual([["p-1"], ["p-1"]]);
+    expect(mocks.verifyEmailCode).toHaveBeenCalledWith(
+      "alice@example.com",
+      "123456",
+    );
+    expect(mocks.registerPasskey).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("Phone")).toBeInTheDocument();
+    expect(screen.queryByText("Laptop")).not.toBeInTheDocument();
+  });
+
+  it("does not retry removal when identity confirmation is cancelled", async () => {
+    mocks.deletePasskey.mockRejectedValueOnce(reauthRequired());
+    const user = userEvent.setup();
+    render(<PasskeysCard email="alice@example.com" />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /remove laptop/i }),
+    );
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: /^remove$/i,
+      }),
+    );
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: /cancel/i,
+      }),
+    );
+
+    expect(mocks.deletePasskey).toHaveBeenCalledTimes(1);
+    expect(mocks.syncAcceptedPasskeys).not.toHaveBeenCalled();
+    expect(screen.getByText("Laptop")).toBeInTheDocument();
+  });
+
+  it("asks people without a known email to sign in before removing", async () => {
+    mocks.deletePasskey.mockRejectedValueOnce(reauthRequired());
+    const user = userEvent.setup();
+    render(<PasskeysCard email={null} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /remove laptop/i }),
+    );
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: /^remove$/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Sign in again to remove a passkey" }),
+      ),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mocks.deletePasskey).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a failed removal", async () => {
     mocks.deletePasskey.mockRejectedValue(
       new AuthApiError("Unable to remove the passkey.", 503),

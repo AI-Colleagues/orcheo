@@ -2,8 +2,8 @@
 
 Passkey sign-in (``/auth/passkey/login/*``) is public and usernameless and
 returns the same session as an emailed code. Adding, listing, renaming, and
-removing passkeys need a signed-in Studio user, and adding one also needs a
-recent sign-in. Database outages surface as 503 through the app-wide handler.
+removing passkeys need a signed-in Studio user. Adding and removing also need
+a recent sign-in. Database outages surface as 503 through the app-wide handler.
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ from orcheo_backend.app.identity.passkeys import (
 )
 from orcheo_backend.app.identity.router import (
     SessionResponse,
-    _email_domain_forbidden,
-    _session_response,
+    email_domain_forbidden,
+    session_response,
 )
 from orcheo_backend.app.identity.tokens import coerce_user_id
 
@@ -143,7 +143,7 @@ async def _run[**P, T](func: Callable[P, T], *args: P.args, **kwargs: P.kwargs) 
             status.HTTP_404_NOT_FOUND, "auth.passkey_not_found", "Passkey not found."
         ) from exc
     except IdentityEmailDomainNotAllowedError as exc:
-        raise _email_domain_forbidden(exc) from exc
+        raise email_domain_forbidden(exc) from exc
 
 
 def _signed_in_user(auth: RequestContext) -> UUID:
@@ -191,7 +191,7 @@ async def passkey_login_verify(
         user_agent=request.headers.get("User-Agent"),
         ip=ip,
     )
-    return _session_response(result.user, result.tokens)
+    return session_response(result.user, result.tokens)
 
 
 @router.post("/passkey/register/options", response_model=PasskeyOptionsResponse)
@@ -263,5 +263,10 @@ async def delete_passkey(
 ) -> Response:
     """Remove one of the signed-in user's passkeys."""
     user_id = _signed_in_user(auth)
-    await _run(service.delete_passkey, user_id, passkey_id)
+    await _run(
+        service.delete_passkey,
+        user_id,
+        passkey_id,
+        auth_time=auth.claims.get("auth_time"),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

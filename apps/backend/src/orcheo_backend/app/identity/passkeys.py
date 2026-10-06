@@ -86,7 +86,7 @@ _TRANSPORTS = {transport.value: transport for transport in AuthenticatorTranspor
 
 _SIGN_IN_FAILED = "That passkey could not be verified. Please try again."
 _REGISTRATION_FAILED = "Your passkey could not be verified. Please try again."
-_REAUTHENTICATE = "Confirm it's you by signing in again before adding a passkey."
+_REAUTHENTICATE = "Confirm it's you by signing in again before changing your passkeys."
 _ACCOUNT_DISABLED = "This account can no longer sign in."
 
 # Passkey providers by AAGUID, from the community-maintained registry at
@@ -152,7 +152,7 @@ class PasskeysUnavailableError(PasskeyServiceError):
 
 
 class PasskeyReauthenticationRequiredError(PasskeyServiceError):
-    """Raised when adding a passkey needs a more recent sign-in."""
+    """Raised when adding or removing a passkey needs a more recent sign-in."""
 
     status_code = 403
     code = "auth.reauthentication_required"
@@ -390,6 +390,7 @@ class PasskeyService:
             now=now,
         )
         user = self._repository.get_user(user_id)
+        self._ensure_can_sign_in(user, event="auth.passkey_registration")
         _ensure_below_limit(self._repository.list_passkeys(user.id))
         try:
             verified = verify_registration_response(
@@ -445,8 +446,11 @@ class PasskeyService:
             )
         return self._repository.rename_passkey(user_id, passkey_id, cleaned)
 
-    def delete_passkey(self, user_id: UUID, passkey_id: UUID) -> Passkey:
-        """Remove one of a user's passkeys and tell the account owner."""
+    def delete_passkey(
+        self, user_id: UUID, passkey_id: UUID, *, auth_time: object
+    ) -> Passkey:
+        """Remove a passkey after a recent sign-in and tell the account owner."""
+        self._require_recent_sign_in(auth_time)
         removed = self._repository.delete_passkey(user_id, passkey_id)
         self._record("auth.passkey_removed", "success", subject=str(user_id))
         self._notify(self._repository.get_user(user_id), removed, action="removed")
@@ -464,7 +468,8 @@ class PasskeyService:
         recent = (
             isinstance(auth_time, int | float)
             and not isinstance(auth_time, bool)
-            and self._identity.now().timestamp() - auth_time
+            and 0
+            <= self._identity.now().timestamp() - auth_time
             <= self._config.passkey_reauth_max_age_seconds
         )
         if not recent:

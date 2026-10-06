@@ -72,12 +72,13 @@ account, not a separate one:
   email verification, and emailed codes keep working as the recovery path, so
   removing a passkey can never lock anyone out. This also means passkeys are not
   a second factor: anyone who can read the mailbox can still sign in.
-- **Adding a passkey needs a recent sign-in.** Access tokens carry `auth_time`
-  (when the session signed in, kept across refreshes). Adding a passkey more
+- **Adding or removing a passkey needs a recent sign-in.** Access tokens carry
+  `auth_time` (when the session signed in, kept across refreshes). Either action more
   than 10 minutes after signing in returns
   `403 auth.reauthentication_required`, and Studio asks the user to confirm
   with an emailed code. Each added or removed passkey also emails a security
   notice to the account owner.
+  Renaming only changes a display label and does not require a recent sign-in.
 - **Passkeys survive sign-out.** "Sign out" revokes sessions, not passkeys;
   users remove passkeys from their profile.
 
@@ -100,8 +101,20 @@ and add new passkeys.
 **Storage.** Passkeys live in `auth_passkeys` (public keys only) and ceremony
 challenges in `auth_passkey_challenges`. Challenges are single-use, expire after
 five minutes, and are consumed before a response is verified, so they work
-across backend replicas. Both tables are created automatically; deleting a user
-deletes their passkeys.
+across backend replicas. Both stores purge expired challenges whenever a new
+challenge is inserted. Both tables are created automatically; deleting a user
+deletes their passkeys. Registration completion rechecks account status and the
+email-domain allowlist before saving a credential.
+
+**Upgrade compatibility.** Release the new core identity models before the
+backend that imports them; the backend requires `orcheo>=0.45.9`. Existing access
+tokens without `auth_time` require an emailed-code confirmation before adding or
+removing a passkey. The WebAuthn dependency upgrades the locked `cryptography`
+from 46 to 50. Intel macOS wheels were removed in
+[cryptography 49](https://cryptography.io/en/49.0.0/changelog/), so native backend
+installs on Intel Macs require a source build with the
+[documented build tools](https://cryptography.io/en/50.0.2/installation/).
+Docker deployments and the arm64 desktop build are unaffected.
 
 **Local testing.** Open Studio at `http://localhost:2026` and use Chrome
 DevTools → More tools → WebAuthn to add a virtual authenticator (CTAP2,

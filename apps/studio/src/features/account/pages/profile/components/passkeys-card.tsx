@@ -61,12 +61,17 @@ interface PasskeysCardProps {
   email: string | null;
 }
 
+type PasskeyConfirmation =
+  { action: "add" } | { action: "remove"; passkey: PasskeySummary };
+
 export function PasskeysCard({ email }: PasskeysCardProps) {
   const supported = passkeysSupported();
   const [list, setList] = useState<PasskeyList | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmation, setConfirmation] = useState<PasskeyConfirmation | null>(
+    null,
+  );
   const [renaming, setRenaming] = useState<PasskeySummary | null>(null);
   const [newName, setNewName] = useState("");
   const [removing, setRemoving] = useState<PasskeySummary | null>(null);
@@ -105,7 +110,7 @@ export function PasskeysCard({ email }: PasskeysCardProps) {
         err.code === "auth.reauthentication_required"
       ) {
         if (email) {
-          setConfirmOpen(true);
+          setConfirmation({ action: "add" });
         } else {
           toast({
             title: "Sign in again to add a passkey",
@@ -151,24 +156,39 @@ export function PasskeysCard({ email }: PasskeysCardProps) {
     }
   };
 
-  const confirmRemove = async () => {
-    if (!removing) {
+  const confirmRemove = async (passkey = removing) => {
+    if (!passkey) {
       return;
     }
     setSaving(true);
     try {
-      await deletePasskey(removing.id);
+      await deletePasskey(passkey.id);
       toast({ title: "Passkey removed" });
       const updated = await refresh();
       if (updated) {
         syncAcceptedPasskeys(updated);
       }
     } catch (err) {
-      failureToast(
-        "Couldn't remove the passkey",
-        err,
-        "Unable to remove the passkey.",
-      );
+      if (
+        err instanceof AuthApiError &&
+        err.code === "auth.reauthentication_required"
+      ) {
+        if (email) {
+          setConfirmation({ action: "remove", passkey });
+        } else {
+          toast({
+            title: "Sign in again to remove a passkey",
+            description: "Sign out, sign back in, then remove your passkey.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        failureToast(
+          "Couldn't remove the passkey",
+          err,
+          "Unable to remove the passkey.",
+        );
+      }
     } finally {
       setSaving(false);
       setRemoving(null);
@@ -272,9 +292,16 @@ export function PasskeysCard({ email }: PasskeysCardProps) {
       {email && (
         <ConfirmIdentityDialog
           email={email}
-          open={confirmOpen}
-          onOpenChange={setConfirmOpen}
-          onConfirmed={() => void addPasskey()}
+          action={confirmation?.action ?? "add"}
+          open={confirmation !== null}
+          onOpenChange={(open) => !open && setConfirmation(null)}
+          onConfirmed={() => {
+            if (confirmation?.action === "remove") {
+              void confirmRemove(confirmation.passkey);
+            } else {
+              void addPasskey();
+            }
+          }}
         />
       )}
 

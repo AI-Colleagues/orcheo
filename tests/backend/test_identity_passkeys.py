@@ -283,8 +283,16 @@ def test_registration_records_single_device_passkeys(harness: Harness) -> None:
 
 @pytest.mark.parametrize(
     "auth_time",
-    [None, "1759752000", True, NOW.timestamp() - 601],
-    ids=["missing", "string", "bool", "stale"],
+    [
+        None,
+        "1759752000",
+        True,
+        NOW.timestamp() - 601,
+        NOW.timestamp() + 1,
+        float("inf"),
+        float("nan"),
+    ],
+    ids=["missing", "string", "bool", "stale", "future", "infinite", "nan"],
 )
 def test_adding_a_passkey_requires_a_recent_sign_in(
     harness: Harness, auth_time: object
@@ -341,6 +349,34 @@ def test_registration_challenge_is_bound_to_the_user(harness: Harness) -> None:
         alice.id, begun.challenge_id, credential
     )
     assert passkey.user_id == alice.id
+
+
+@pytest.mark.parametrize("change", ["disabled", "domain"])
+def test_registration_rechecks_account_eligibility_at_completion(
+    harness: Harness, change: str
+) -> None:
+    alice = harness.user()
+    begun = harness.service.begin_registration(alice.id, auth_time=NOW.timestamp())
+    credential = SoftAuthenticator().register(begun.options)
+    service = harness.service
+    if change == "disabled":
+        harness.repo.update_user(
+            alice.model_copy(update={"status": UserStatus.DISABLED})
+        )
+        error = PasskeyRejectedError
+    else:
+        service = Harness(
+            repo=harness.repo, allowed_email_domains=("example.org",)
+        ).service
+        error = IdentityEmailDomainNotAllowedError
+
+    with pytest.raises(error):
+        service.finish_registration(alice.id, begun.challenge_id, credential)
+
+    assert harness.repo.list_passkeys(alice.id) == []
+    assert harness.notices.sent == []
+    with pytest.raises(PasskeyChallengeNotFoundError):
+        service.finish_registration(alice.id, begun.challenge_id, credential)
 
 
 def test_registration_challenge_cannot_be_used_for_sign_in(harness: Harness) -> None:
@@ -631,9 +667,11 @@ def test_rename_and_delete_passkeys(harness: Harness) -> None:
     with pytest.raises(PasskeyNotFoundError):
         harness.service.rename_passkey(bob.id, passkey.id, "Mine now")
     with pytest.raises(PasskeyNotFoundError):
-        harness.service.delete_passkey(bob.id, passkey.id)
+        harness.service.delete_passkey(bob.id, passkey.id, auth_time=NOW.timestamp())
 
-    removed = harness.service.delete_passkey(alice.id, passkey.id)
+    removed = harness.service.delete_passkey(
+        alice.id, passkey.id, auth_time=NOW.timestamp()
+    )
 
     assert removed.id == passkey.id
     assert harness.service.list_passkeys(alice.id) == []
@@ -660,6 +698,23 @@ def test_a_failed_notice_does_not_undo_the_change(
     assert "Failed to send the passkey added notice" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "auth_time", [None, NOW.timestamp() - 601, NOW.timestamp() + 1]
+)
+def test_removing_a_passkey_requires_a_recent_sign_in(
+    harness: Harness, auth_time: object
+) -> None:
+    alice = harness.user()
+    passkey = harness.register(alice, SoftAuthenticator())
+
+    with pytest.raises(PasskeyReauthenticationRequiredError):
+        harness.service.delete_passkey(alice.id, passkey.id, auth_time=auth_time)
+
+    assert harness.repo.list_passkeys(alice.id) == [passkey]
+    assert [notice.action for notice in harness.notices.sent] == ["added"]
+    assert ("auth.passkey_removed", "success", None) not in harness.events()
+
+
 def test_notices_are_optional() -> None:
     harness = Harness()
     quiet = PasskeyService(harness.identity)
@@ -669,7 +724,7 @@ def test_notices_are_optional() -> None:
     passkey = quiet.finish_registration(
         alice.id, begun.challenge_id, SoftAuthenticator().register(begun.options)
     )
-    quiet.delete_passkey(alice.id, passkey.id)
+    quiet.delete_passkey(alice.id, passkey.id, auth_time=NOW.timestamp())
 
     assert harness.notices.sent == []
     assert quiet.identity is harness.identity

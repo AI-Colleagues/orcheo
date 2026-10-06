@@ -18,6 +18,7 @@ import {
 
 interface ConfirmIdentityDialogProps {
   email: string;
+  action: "add" | "remove";
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called once a fresh sign-in has replaced the stored session. */
@@ -26,10 +27,11 @@ interface ConfirmIdentityDialogProps {
 
 /**
  * Re-verify the signed-in person with an emailed code. Sensitive actions such
- * as adding a passkey need a recent sign-in, and this provides one.
+ * as adding or removing a passkey need a recent sign-in, and this provides one.
  */
 export function ConfirmIdentityDialog({
   email,
+  action,
   open,
   onOpenChange,
   onConfirmed,
@@ -90,7 +92,7 @@ export function ConfirmIdentityDialog({
           <DialogDescription>
             {codeSent
               ? `Enter the sign-in code we sent to ${email}.`
-              : `To add a passkey, sign in again with a code sent to ${email}.`}
+              : `To ${action} a passkey, sign in again with a code sent to ${email}.`}
           </DialogDescription>
         </DialogHeader>
         {codeSent ? (

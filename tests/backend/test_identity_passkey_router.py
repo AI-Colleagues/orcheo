@@ -230,13 +230,48 @@ def test_adding_a_passkey_requires_a_recent_sign_in(api: Api) -> None:
         auth_time=int((datetime.now(tz=UTC) - timedelta(hours=1)).timestamp()),
     )
     tokens_without_auth_time = _token(user_id, auth_time=None)
+    future = _token(
+        user_id,
+        auth_time=int((datetime.now(tz=UTC) + timedelta(hours=1)).timestamp()),
+    )
 
-    for token in (stale, tokens_without_auth_time):
+    for token in (stale, tokens_without_auth_time, future):
         response = api.client.post(
             "/api/auth/passkey/register/options", headers=_bearer(token)
         )
         assert response.status_code == 403
         assert response.json()["detail"]["code"] == "auth.reauthentication_required"
+
+
+@pytest.mark.parametrize("auth_time", [None, "stale", "future"])
+def test_removing_a_passkey_requires_recent_auth_over_http(
+    api: Api, auth_time: str | None
+) -> None:
+    session = api.sign_in_by_email()
+    fresh = session["access_token"]
+    authenticator = SoftAuthenticator()
+    registered = api.register(fresh, authenticator).json()
+    timestamp = None
+    if auth_time is not None:
+        offset = -1 if auth_time == "stale" else 1
+        timestamp = int((datetime.now(tz=UTC) + timedelta(hours=offset)).timestamp())
+    token = _token(session["user"]["id"], auth_time=timestamp)
+    path = f"/api/auth/passkeys/{registered['id']}"
+
+    refused = api.client.delete(path, headers=_bearer(token))
+
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["code"] == "auth.reauthentication_required"
+    assert api.sign_in(authenticator).status_code == 200
+    assert [notice.action for notice in api.sender.notices] == ["added"]
+    # Display labels can still be changed without recent authentication.
+    assert (
+        api.client.patch(
+            path, headers=_bearer(token), json={"name": "Renamed"}
+        ).status_code
+        == 200
+    )
+    assert api.client.delete(path, headers=_bearer(fresh)).status_code == 204
 
 
 def test_passkey_management_requires_a_studio_user(api: Api) -> None:
@@ -334,6 +369,29 @@ def test_sign_in_rechecks_the_email_domain_allowlist(api: Api) -> None:
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "auth.email_domain_not_allowed"
+
+
+def test_registration_completion_rechecks_the_email_domain_allowlist(api: Api) -> None:
+    token = api.sign_in_by_email()["access_token"]
+    begun = api.client.post(
+        "/api/auth/passkey/register/options", headers=_bearer(token)
+    ).json()
+    credential = SoftAuthenticator().register(begun["options"])
+    api.install(allowed_email_domains=("example.org",))
+
+    response = api.client.post(
+        "/api/auth/passkey/register/verify",
+        headers=_bearer(token),
+        json={"challenge_id": begun["challenge_id"], "credential": credential},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "auth.email_domain_not_allowed"
+    assert api.sender.notices == []
+    assert (
+        api.client.get("/api/auth/passkeys", headers=_bearer(token)).json()["passkeys"]
+        == []
+    )
 
 
 def test_passkeys_unavailable_without_a_relying_party(api: Api) -> None:
