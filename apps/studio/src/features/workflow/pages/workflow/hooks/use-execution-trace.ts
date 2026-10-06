@@ -5,6 +5,7 @@ import { toast } from "@/hooks/use-toast";
 import { authFetch } from "@/lib/auth-fetch";
 import { buildBackendHttpUrl } from "@/lib/config";
 import type { TraceViewerData } from "@features/workflow/components/trace/agent-prism";
+import { extractErrorMessage } from "@features/workflow/lib/workflow-storage-api";
 import {
   applyTraceResponse,
   applyTraceUpdate,
@@ -159,6 +160,20 @@ const createTraceRequestError = async (
   const baseMessage = `Trace fetch for execution ${executionId} failed (${statusText})`;
   const message = detail ? `${baseMessage}: ${detail}` : baseMessage;
   return new TraceRequestError(message, response.status);
+};
+
+// The details panel already says the span state failed to load, so the message
+// carries only the API's reason and the HTTP status.
+const createSpanStateError = async (
+  response: Response,
+): Promise<TraceRequestError> => {
+  const body = (await response.text()).trim();
+  const statusText = `${response.status} ${response.statusText}`.trim();
+  const detail = body ? extractErrorMessage(body) : "";
+  return new TraceRequestError(
+    detail ? `${detail} (${statusText}).` : `Request failed (${statusText}).`,
+    response.status,
+  );
 };
 
 const normalizeTraceError = (
@@ -502,7 +517,7 @@ export function useExecutionTrace({
           buildSpanStateUrl(backendBaseUrl, executionId, spanId),
         );
         if (!response.ok) {
-          throw await createTraceRequestError(response, executionId);
+          throw await createSpanStateError(response);
         }
         return (await response.json()) as TraceSpanStateResponse;
       })();

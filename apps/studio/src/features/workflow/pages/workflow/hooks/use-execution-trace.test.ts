@@ -218,7 +218,7 @@ describe("useExecutionTrace", () => {
 
     await expect(
       result.current.loadSpanState("exec-1", "exec-1-node"),
-    ).rejects.toThrow(/500/);
+    ).rejects.toThrow(/^no \(500 Error\)\.$/);
     await expect(
       result.current.loadSpanState("exec-1", "exec-1-node"),
     ).resolves.toMatchObject({ span_id: "exec-1-node" });

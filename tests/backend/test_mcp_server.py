@@ -185,6 +185,7 @@ async def test_client_forwards_caller_identity() -> None:
     assert default["headers"]["x-orcheo-workspace"] == "from-header"
     assert default["headers"]["x-forwarded-proto"] == "https"
     assert default["headers"]["host"] == "orcheo.example.com"
+    assert default["headers"]["accept-encoding"] == "identity"
     assert "x-unrelated" not in default["headers"]
     assert default["client"] == "203.0.113.9"
     assert default["query"] == {"a": "1"}

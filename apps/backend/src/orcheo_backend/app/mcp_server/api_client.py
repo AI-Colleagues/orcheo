@@ -105,6 +105,9 @@ class InProcessApiClient:
         }
         if workspace is not None and workspace.strip():
             headers[WORKSPACE_HEADER.lower()] = workspace.strip()
+        # Responses never leave the process: opt out of the API's gzip layer
+        # instead of compressing bodies only to decompress them right away.
+        headers["accept-encoding"] = "identity"
         # Preserve the caller's address so IP-based auth rate limits and audit
         # logging see the real client rather than a loopback placeholder.
         peer = request.client

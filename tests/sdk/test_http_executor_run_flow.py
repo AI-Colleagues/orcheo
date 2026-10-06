@@ -145,9 +145,15 @@ def _dispatch_to_app(api_client: TestClient, request: httpx.Request) -> httpx.Re
         content=request.content,
     )
 
+    # ``response.content`` is already decoded (the API gzips large bodies), so
+    # drop the headers that describe the encoded body before relaying it.
     return httpx.Response(
         status_code=response.status_code,
-        headers=response.headers,
+        headers=[
+            (key, value)
+            for key, value in response.headers.multi_items()
+            if key.lower() not in {"content-encoding", "content-length"}
+        ],
         content=response.content,
     )
 
