@@ -187,6 +187,7 @@ class AttachmentStoreMixin(BasePostgresStore):
                     (thread_ids,),
                 )
 
+        await self._notify_threads_deleted(thread_ids)
         s3_backend = self.attachment_service.s3_backend
         for row in attachment_rows:
             blob_backend = row.get("blob_backend") or None

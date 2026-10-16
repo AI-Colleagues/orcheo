@@ -7,6 +7,7 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from orcheo.config import get_settings
 from orcheo.config.defaults import _DEFAULTS
+from orcheo.persistence import delete_thread_checkpoints
 from orcheo_backend.app.dependencies import _history_store_ref
 from orcheo_backend.app.history.postgres_store import PostgresRunHistoryStore
 
@@ -33,8 +34,16 @@ def trace_retention_days() -> int:
 async def prune_expired_traces(
     store: PostgresRunHistoryStore, retention_days: int
 ) -> int:
-    """Delete execution histories that finished more than ``retention_days`` ago."""
+    """Delete execution histories that finished more than ``retention_days`` ago.
+
+    Their LangGraph checkpoints go first: runs normally delete their own when
+    they finish, but older runs and runs whose process died did not. Deleting
+    the histories afterwards means a failed checkpoint cleanup is retried on
+    the next sweep.
+    """
     cutoff = datetime.now(tz=UTC) - timedelta(days=retention_days)
+    execution_ids = await store.list_execution_ids_completed_before(cutoff)
+    await delete_thread_checkpoints(get_settings(), execution_ids)
     pruned = await store.prune_histories_older_than(cutoff)
     if pruned:
         logger.info(

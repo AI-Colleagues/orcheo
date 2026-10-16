@@ -252,14 +252,19 @@ async def test_execute_workflow_failure_records_error() -> None:
     mock_graph = MagicMock()
 
     class _FailingStream:
+        def __init__(self) -> None:
+            self.aclose = AsyncMock()
+
         def __aiter__(self):
             return self
 
         async def __anext__(self):
             raise RuntimeError("boom")
 
+    stream = _FailingStream()
+
     def failing_astream(*args, **kwargs):
-        return _FailingStream()
+        return stream
 
     mock_compiled_graph = MagicMock()
     mock_compiled_graph.astream = failing_astream
@@ -293,6 +298,7 @@ async def test_execute_workflow_failure_records_error() -> None:
                 "exec-1",
                 mock_websocket,
             )
+    stream.aclose.assert_awaited_once_with()
     mock_browser_cleanup.assert_awaited_once_with("exec-1")
 
     history = await history_store.get_history("exec-1")
@@ -310,14 +316,19 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
     cancellation_reason = "client requested stop"
 
     class _CancellingStream:
+        def __init__(self) -> None:
+            self.aclose = AsyncMock()
+
         def __aiter__(self):
             return self
 
         async def __anext__(self):
             raise asyncio.CancelledError(cancellation_reason)
 
+    stream = _CancellingStream()
+
     def cancelling_astream(*args, **kwargs):
-        return _CancellingStream()
+        return stream
 
     mock_compiled_graph = MagicMock()
     mock_compiled_graph.astream = cancelling_astream
@@ -343,7 +354,7 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
             new_callable=AsyncMock,
         ) as mock_browser_cleanup,
     ):
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError, match=cancellation_reason):
             await execute_workflow(
                 "wf-cancel",
                 {"nodes": []},
@@ -351,6 +362,7 @@ async def test_execute_workflow_cancelled_records_reason() -> None:
                 "exec-cancel",
                 mock_websocket,
             )
+    stream.aclose.assert_awaited_once_with()
     mock_browser_cleanup.assert_awaited_once_with("exec-cancel")
 
     history = await history_store.get_history("exec-cancel")

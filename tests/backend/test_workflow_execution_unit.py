@@ -6,11 +6,12 @@ import contextlib
 import importlib
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 import pytest
 from fastapi import WebSocketDisconnect
+from langchain_core.runnables import RunnableConfig
 from orcheo.agentensor.evaluation import (
     EvaluationCase,
     EvaluationDataset,
@@ -223,9 +224,11 @@ async def test_execute_workflow_recorded_persists_trace_history(
         close_sessions,
     )
 
+    checkpointer = object()
+
     class AsyncContext:
         async def __aenter__(self) -> object:
-            return object()
+            return checkpointer
 
         async def __aexit__(self, exc_type, exc, tb) -> None:
             return None
@@ -249,6 +252,8 @@ async def test_execute_workflow_recorded_persists_trace_history(
     )
     stream = AsyncMock(return_value={"structured_response": {"greeting": "Hello!"}})
     monkeypatch.setattr(workflow_execution, "_run_workflow_stream", stream)
+    discard = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "discard_run_checkpoints", discard)
 
     result = await workflow_execution.execute_workflow_recorded(
         workflow_id,
@@ -270,6 +275,7 @@ async def test_execute_workflow_recorded_persists_trace_history(
     assert stream.await_args.args[5] is None
     assert completion_spans == [SpanContext.span]
     close_sessions.assert_awaited_once_with("app-run-1")
+    discard.assert_awaited_once_with(checkpointer, "app-run-1")
 
 
 def test_build_initial_state_langgraph_non_mapping_returns_inputs() -> None:
@@ -786,7 +792,9 @@ async def test_stream_workflow_updates_logs_final_state(
             config: object,
             stream_mode: str,
             subgraphs: bool = False,
+            durability: str | None = None,
         ):
+            assert durability == "exit"
             yield {"node": {"status": "running"}}
 
         async def aget_state(self, config: object) -> object:
@@ -839,7 +847,9 @@ async def test_stream_workflow_updates_forwards_in_node_status(
             config: object,
             stream_mode: str,
             subgraphs: bool = False,
+            durability: str | None = None,
         ):
+            assert durability == "exit"
             captured_callback["callback"] = get_active_tool_progress_callback()
             assert captured_callback["callback"] is not None
             await captured_callback["callback"](
@@ -1987,3 +1997,102 @@ async def test_execute_workflow_training_completes(
     history_store.start_run.assert_awaited_once()
     safe_send.assert_any_await(websocket, {"status": "completed"})
     assert emit_update.await_args_list[-1][1]["complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_execute_trusted_workflow_discards_checkpoints_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed run still drops its checkpoints; nothing resumes it."""
+    _patch_graph_and_checkpointer(monkeypatch)
+    monkeypatch.setattr(
+        workflow_execution, "credential_resolution", contextlib.nullcontext
+    )
+    monkeypatch.setattr(
+        workflow_execution,
+        "_run_workflow_stream",
+        AsyncMock(side_effect=RuntimeError("node failed")),
+    )
+    discard = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "discard_run_checkpoints", discard)
+
+    with pytest.raises(RuntimeError, match="node failed"):
+        await workflow_execution._execute_trusted_workflow_in_worker(
+            settings={},
+            graph_config={"format": LANGGRAPH_SCRIPT_FORMAT},
+            inputs={},
+            runtime_config=cast(RunnableConfig, {}),
+            state_config={},
+            history_store=_make_history_store(),
+            websocket=cast(Any, object()),
+            execution_id="exec-1",
+            tracer=cast(Any, object()),
+            span=cast(Any, object()),
+            resolver=cast(Any, object()),
+            workspace_id=None,
+        )
+
+    discard.assert_awaited_once()
+    assert discard.await_args.args[1] == "exec-1"
+
+
+@pytest.mark.asyncio
+async def test_run_evaluation_node_discards_checkpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every evaluation case runs on the execution's thread, which is dropped."""
+    _setup_common_mocks(monkeypatch)
+    _patch_graph_and_checkpointer(monkeypatch)
+    _patch_agentensor_node(
+        monkeypatch,
+        "agentensor_evaluator",
+        result={"node_results": {"agentensor_evaluator": {"score": 1}}},
+    )
+    discard = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "_discard_agentensor_checkpoints", discard)
+    settings = {"backend": "test"}
+
+    await _run_evaluation_node(
+        graph_config={},
+        inputs={},
+        runtime_config=SimpleNamespace(),
+        state_config={},
+        evaluation_request=_evaluation_request(),
+        parsed_config=SimpleNamespace(prompts={}),
+        history_store=_make_history_store(),
+        websocket=object(),
+        execution_id="eval-1",
+        tracer=object(),
+        resolver=object(),
+        settings=settings,
+        span=SimpleNamespace(),
+    )
+
+    discard.assert_awaited_once_with(settings, "eval-1")
+
+
+@pytest.mark.asyncio
+async def test_discard_agentensor_checkpoints_deletes_execution_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delete = AsyncMock()
+    monkeypatch.setattr(workflow_execution, "delete_thread_checkpoints", delete)
+
+    await workflow_execution._discard_agentensor_checkpoints({}, "eval-1")
+
+    delete.assert_awaited_once_with({}, ["eval-1"])
+
+
+@pytest.mark.asyncio
+async def test_discard_agentensor_checkpoints_logs_failures(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(
+        workflow_execution,
+        "delete_thread_checkpoints",
+        AsyncMock(side_effect=RuntimeError("db down")),
+    )
+
+    await workflow_execution._discard_agentensor_checkpoints({}, "eval-1")
+
+    assert "Failed to delete checkpoints for execution eval-1" in caplog.text

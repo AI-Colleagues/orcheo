@@ -206,16 +206,19 @@ class ThreadStoreMixin(BasePostgresStore):
                 # When the caller is scoped to an owner, only allow deleting their
                 # own threads (legacy unowned rows remain deletable).
                 if owner_key is not None:
-                    await conn.execute(
+                    cursor = await conn.execute(
                         "DELETE FROM chat_threads "
-                        "WHERE id = %s AND (owner_key IS NULL OR owner_key = %s)",
+                        "WHERE id = %s AND (owner_key IS NULL OR owner_key = %s) "
+                        "RETURNING id",
                         (thread_id, owner_key),
                     )
                 else:
-                    await conn.execute(
-                        "DELETE FROM chat_threads WHERE id = %s",
+                    cursor = await conn.execute(
+                        "DELETE FROM chat_threads WHERE id = %s RETURNING id",
                         (thread_id,),
                     )
+                deleted_ids = [row["id"] for row in await cursor.fetchall()]
+        await self._notify_threads_deleted(deleted_ids)
 
     async def filter_threads(
         self,

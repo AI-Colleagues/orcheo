@@ -20,7 +20,12 @@ from langchain_core.runnables import RunnableConfig
 from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext, WorkflowRun, WorkflowVersion
-from orcheo.persistence import create_checkpointer, create_graph_store
+from orcheo.persistence import (
+    RUN_DURABILITY,
+    create_checkpointer,
+    create_graph_store,
+    discard_run_checkpoints,
+)
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.runtime.state_builder import build_initial_state
@@ -195,7 +200,14 @@ async def _try_immediate_response(
                     state = _build_webhook_state(
                         graph_config, inputs, state_config, workspace_id
                     )
-                    final_state = await compiled.ainvoke(state, config=runtime_config)
+                    try:
+                        final_state = await compiled.ainvoke(
+                            state,
+                            config=runtime_config,
+                            durability=RUN_DURABILITY,
+                        )
+                    finally:
+                        await discard_run_checkpoints(checkpointer, execution_id)
     except Exception:
         # If workflow build or execution fails, fall back to normal async processing
         logger.debug(

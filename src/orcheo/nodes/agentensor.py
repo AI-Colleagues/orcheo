@@ -33,6 +33,7 @@ from orcheo.graph.ingestion import LANGGRAPH_SCRIPT_FORMAT
 from orcheo.graph.state import State
 from orcheo.nodes.base import TaskNode
 from orcheo.nodes.registry import NodeMetadata, registry
+from orcheo.persistence import RUN_DURABILITY
 
 
 logger = logging.getLogger(__name__)
@@ -251,6 +252,7 @@ class AgentensorNode(TaskNode):
             runtime_prompts=runtime_prompts,
             base_state=state if isinstance(state, Mapping) else {},
             graph_config=config,
+            durability=RUN_DURABILITY,
             max_concurrency=min(
                 self.optimizer.max_concurrency, self._max_concurrency_cap
             ),
@@ -323,6 +325,7 @@ class AgentensorNode(TaskNode):
             runtime_prompts=runtime_prompts,
             base_state=state if isinstance(state, Mapping) else {},
             graph_config=capped_config,
+            durability=RUN_DURABILITY,
             max_concurrency=min(
                 self.optimizer.max_concurrency, self._max_concurrency_cap
             ),

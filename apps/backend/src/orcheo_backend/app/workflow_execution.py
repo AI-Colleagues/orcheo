@@ -5,6 +5,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable, Mapping
+from contextlib import aclosing
 from typing import Any, Protocol, cast
 from uuid import UUID
 from fastapi import WebSocketDisconnect
@@ -17,6 +18,11 @@ from orcheo.graph.state import State
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.nodes.browser import close_browser_sessions_for_scope
+from orcheo.persistence import (
+    RUN_DURABILITY,
+    delete_thread_checkpoints,
+    discard_run_checkpoints,
+)
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import (
     RunnableConfigModel,
@@ -227,34 +233,40 @@ async def _stream_workflow_updates(
         )
 
     with tool_progress_context(in_node_status_callback):
-        async for chunk in compiled_graph.astream(
-            state,
-            config=config,  # type: ignore[arg-type]
-            stream_mode="updates",
-            subgraphs=True,
-        ):  # pragma: no cover
-            namespace, step = split_subgraph_update(chunk)
-            tagged_step = encode_step_namespace(step, namespace)
-            _log_step_debug(tagged_step)
-            # Keep ``__trace`` on the tracing/history copies (used to surface AI
-            # model/provider metadata); strip it only from the websocket payload.
-            record_workflow_step(tracer, tagged_step)
-            history_step = await history_store.append_step(execution_id, tagged_step)
-            if websocket is not None:
-                try:
-                    await _safe_send_json(
-                        websocket, _sanitize_public_step_payload(tagged_step)
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.error("Error processing messages: %s", exc)
-                    raise
-
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    step=history_step,
+        async with aclosing(
+            compiled_graph.astream(
+                state,
+                config=config,  # type: ignore[arg-type]
+                stream_mode="updates",
+                subgraphs=True,
+                durability=RUN_DURABILITY,
+            )
+        ) as stream:
+            async for chunk in stream:  # pragma: no cover
+                namespace, step = split_subgraph_update(chunk)
+                tagged_step = encode_step_namespace(step, namespace)
+                _log_step_debug(tagged_step)
+                # Keep ``__trace`` on the tracing/history copies (used to surface AI
+                # model/provider metadata); strip it only from the websocket payload.
+                record_workflow_step(tracer, tagged_step)
+                history_step = await history_store.append_step(
+                    execution_id, tagged_step
                 )
+                if websocket is not None:
+                    try:
+                        await _safe_send_json(
+                            websocket, _sanitize_public_step_payload(tagged_step)
+                        )
+                    except Exception as exc:  # pragma: no cover
+                        logger.error("Error processing messages: %s", exc)
+                        raise
+
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        step=history_step,
+                    )
 
     final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
     _log_final_state_debug(final_state.values)
@@ -444,16 +456,19 @@ async def _execute_trusted_workflow_in_worker(
             )
             _log_sensitive_debug("Initial state: %s", state)
 
-            await _run_workflow_stream(
-                compiled_graph,
-                state,
-                runtime_config,
-                history_store,
-                execution_id,
-                websocket,
-                tracer,
-                span,
-            )
+            try:
+                await _run_workflow_stream(
+                    compiled_graph,
+                    state,
+                    runtime_config,
+                    history_store,
+                    execution_id,
+                    websocket,
+                    tracer,
+                    span,
+                )
+            finally:
+                await discard_run_checkpoints(checkpointer, execution_id)
 
 
 async def execute_workflow_recorded(
@@ -526,16 +541,19 @@ async def execute_workflow_recorded(
                             state_config,
                             workspace_id,
                         )
-                        final_state = await _run_workflow_stream(
-                            compiled_graph,
-                            state,
-                            runtime_config,
-                            history_store,
-                            execution_id,
-                            None,
-                            tracer,
-                            span_context.span,
-                        )
+                        try:
+                            final_state = await _run_workflow_stream(
+                                compiled_graph,
+                                state,
+                                runtime_config,
+                                history_store,
+                                execution_id,
+                                None,
+                                tracer,
+                                span_context.span,
+                            )
+                        finally:
+                            await discard_run_checkpoints(checkpointer, execution_id)
 
             completion_payload = {"status": "completed"}
             record_workflow_completion(span_context.span)
@@ -769,6 +787,8 @@ async def _run_evaluation_node(
             complete=True,
         )
         raise
+    finally:
+        await _discard_agentensor_checkpoints(settings, execution_id)
 
 
 async def _run_training_node(
@@ -895,6 +915,23 @@ async def _run_training_node(
                 complete=True,
             )
             raise
+        finally:
+            await _discard_agentensor_checkpoints(settings, execution_id)
+
+
+async def _discard_agentensor_checkpoints(settings: Any, execution_id: str) -> None:
+    """Delete the checkpoints an evaluation or training run left behind.
+
+    Every case runs on the execution's thread, and nothing reads it afterwards.
+    """
+    try:
+        await delete_thread_checkpoints(settings, [execution_id])
+    except Exception:
+        logger.warning(
+            "Failed to delete checkpoints for execution %s",
+            execution_id,
+            exc_info=True,
+        )
 
 
 async def execute_workflow_evaluation(

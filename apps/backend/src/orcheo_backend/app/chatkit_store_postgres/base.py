@@ -3,7 +3,8 @@
 from __future__ import annotations
 import asyncio
 import importlib
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 from chatkit.store import Store
@@ -12,6 +13,11 @@ from orcheo_backend.app.chatkit_store_postgres.schema import ensure_schema
 from orcheo_backend.app.chatkit_store_postgres.types import ChatKitRequestContext
 from orcheo_backend.app.chatkit_store_postgres.utils import now_utc
 
+
+logger = logging.getLogger(__name__)
+
+# Callback run with the IDs of ChatKit threads the store has just deleted.
+ThreadsDeletedHook = Callable[[Sequence[str]], Awaitable[None]]
 
 # Optional psycopg dependencies
 AsyncConnectionPool: Any | None
@@ -28,6 +34,8 @@ except Exception:  # pragma: no cover - fallback when dependency missing
 class BasePostgresStore(Store[ChatKitRequestContext]):
     """Manage the PostgreSQL connection pool and schema."""
 
+    _on_threads_deleted: ThreadsDeletedHook | None = None
+
     def __init__(
         self,
         dsn: str,
@@ -36,8 +44,13 @@ class BasePostgresStore(Store[ChatKitRequestContext]):
         pool_max_size: int = 10,
         pool_timeout: float = 5.0,
         pool_max_idle: float = 240.0,
+        on_threads_deleted: ThreadsDeletedHook | None = None,
     ) -> None:
-        """Initialize the store with a Postgres DSN and pool settings."""
+        """Initialize the store with a Postgres DSN and pool settings.
+
+        ``on_threads_deleted`` runs after threads are deleted or pruned, so data
+        kept outside this store, such as LangGraph checkpoints, goes with them.
+        """
         if AsyncConnectionPool is None or DictRowFactory is None:
             msg = "PostgreSQL backend requires psycopg[binary,pool] to be installed."
             raise RuntimeError(msg)
@@ -52,6 +65,20 @@ class BasePostgresStore(Store[ChatKitRequestContext]):
         self._pool_lock = asyncio.Lock()
         self._schema_lock = asyncio.Lock()
         self._initialized = False
+        self._on_threads_deleted = on_threads_deleted
+
+    async def _notify_threads_deleted(self, thread_ids: Sequence[str]) -> None:
+        """Run the thread deletion hook, logging instead of raising on failure."""
+        if self._on_threads_deleted is None or not thread_ids:
+            return
+        try:
+            await self._on_threads_deleted(list(thread_ids))
+        except Exception:
+            logger.warning(
+                "Failed to clean up after deleting %s ChatKit thread(s)",
+                len(thread_ids),
+                exc_info=True,
+            )
 
     async def _get_pool(self) -> Any:
         if self._pool is not None:

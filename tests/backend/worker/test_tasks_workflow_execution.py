@@ -436,6 +436,82 @@ class TestHistoryHelpers:
         mock_logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_stream_run_history_steps_persists_only_at_exit(self) -> None:
+        """Worker runs save one checkpoint when the run exits, not every step."""
+        from orcheo_backend.worker.tasks import _stream_run_history_steps
+
+        mock_compiled = MagicMock()
+
+        async def _step_stream() -> Any:
+            yield {"node": {"status": "running"}}
+
+        mock_compiled.astream = MagicMock(return_value=_step_stream())
+
+        await _stream_run_history_steps(
+            compiled=mock_compiled,
+            state={},
+            runtime_config={},
+            history_store=AsyncMock(),
+            execution_id="exec-1",
+            history_error_cls=RuntimeError,
+        )
+
+        assert mock_compiled.astream.call_args.kwargs["durability"] == "exit"
+
+    @pytest.mark.asyncio
+    async def test_run_to_final_state_discards_checkpoints(self) -> None:
+        """The final state is read before the run's checkpoints are deleted."""
+        from orcheo_backend.worker.tasks import _run_to_final_state
+
+        mock_compiled = MagicMock()
+
+        async def _step_stream() -> Any:
+            yield {"node": {"status": "done"}}
+
+        mock_compiled.astream = MagicMock(return_value=_step_stream())
+        mock_compiled.aget_state = AsyncMock(
+            return_value=MagicMock(values={"result": 1})
+        )
+        checkpointer = MagicMock()
+        checkpointer.adelete_thread = AsyncMock()
+
+        final_state = await _run_to_final_state(
+            compiled=mock_compiled,
+            checkpointer=checkpointer,
+            state={},
+            runtime_config={},
+            history_store=AsyncMock(),
+            execution_id="exec-1",
+            history_error_cls=RuntimeError,
+        )
+
+        assert final_state == {"result": 1}
+        checkpointer.adelete_thread.assert_awaited_once_with("exec-1")
+
+    @pytest.mark.asyncio
+    async def test_run_to_final_state_discards_checkpoints_on_failure(self) -> None:
+        """A failed run still drops its checkpoints before the error propagates."""
+        from orcheo_backend.worker.tasks import _run_to_final_state
+
+        mock_compiled = MagicMock()
+        mock_compiled.astream = MagicMock(side_effect=RuntimeError("graph failed"))
+        checkpointer = MagicMock()
+        checkpointer.adelete_thread = AsyncMock()
+
+        with pytest.raises(RuntimeError, match="graph failed"):
+            await _run_to_final_state(
+                compiled=mock_compiled,
+                checkpointer=checkpointer,
+                state={},
+                runtime_config={},
+                history_store=AsyncMock(),
+                execution_id="exec-1",
+                history_error_cls=RuntimeError,
+            )
+
+        checkpointer.adelete_thread.assert_awaited_once_with("exec-1")
+
+    @pytest.mark.asyncio
     async def test_mark_history_completed_logs_history_error(self) -> None:
         """Test _mark_history_completed catches completion failures."""
         from orcheo_backend.worker.tasks import _mark_history_completed
