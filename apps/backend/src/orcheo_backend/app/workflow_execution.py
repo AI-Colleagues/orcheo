@@ -5,6 +5,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable, Mapping
+from contextlib import aclosing
 from typing import Any, Protocol, cast
 from uuid import UUID
 from fastapi import WebSocketDisconnect
@@ -232,35 +233,40 @@ async def _stream_workflow_updates(
         )
 
     with tool_progress_context(in_node_status_callback):
-        async for chunk in compiled_graph.astream(
-            state,
-            config=config,  # type: ignore[arg-type]
-            stream_mode="updates",
-            subgraphs=True,
-            durability=RUN_DURABILITY,
-        ):  # pragma: no cover
-            namespace, step = split_subgraph_update(chunk)
-            tagged_step = encode_step_namespace(step, namespace)
-            _log_step_debug(tagged_step)
-            # Keep ``__trace`` on the tracing/history copies (used to surface AI
-            # model/provider metadata); strip it only from the websocket payload.
-            record_workflow_step(tracer, tagged_step)
-            history_step = await history_store.append_step(execution_id, tagged_step)
-            if websocket is not None:
-                try:
-                    await _safe_send_json(
-                        websocket, _sanitize_public_step_payload(tagged_step)
-                    )
-                except Exception as exc:  # pragma: no cover
-                    logger.error("Error processing messages: %s", exc)
-                    raise
-
-                await _emit_trace_update(
-                    history_store,
-                    websocket,
-                    execution_id,
-                    step=history_step,
+        async with aclosing(
+            compiled_graph.astream(
+                state,
+                config=config,  # type: ignore[arg-type]
+                stream_mode="updates",
+                subgraphs=True,
+                durability=RUN_DURABILITY,
+            )
+        ) as stream:
+            async for chunk in stream:  # pragma: no cover
+                namespace, step = split_subgraph_update(chunk)
+                tagged_step = encode_step_namespace(step, namespace)
+                _log_step_debug(tagged_step)
+                # Keep ``__trace`` on the tracing/history copies (used to surface AI
+                # model/provider metadata); strip it only from the websocket payload.
+                record_workflow_step(tracer, tagged_step)
+                history_step = await history_store.append_step(
+                    execution_id, tagged_step
                 )
+                if websocket is not None:
+                    try:
+                        await _safe_send_json(
+                            websocket, _sanitize_public_step_payload(tagged_step)
+                        )
+                    except Exception as exc:  # pragma: no cover
+                        logger.error("Error processing messages: %s", exc)
+                        raise
+
+                    await _emit_trace_update(
+                        history_store,
+                        websocket,
+                        execution_id,
+                        step=history_step,
+                    )
 
     final_state = await compiled_graph.aget_state(cast(RunnableConfig, config))
     _log_final_state_debug(final_state.values)

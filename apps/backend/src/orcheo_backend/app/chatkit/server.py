@@ -31,7 +31,7 @@ with warnings.catch_warnings():
     )
     from chatkit.errors import CustomStreamError
     from chatkit.server import ChatKitServer
-    from chatkit.store import Store
+    from chatkit.store import NotFoundError, Store
     from chatkit.types import (
         Action,
         AssistantMessageItem,
@@ -610,7 +610,16 @@ class OrcheoChatKitServer(ChatKitServer[ChatKitRequestContext]):
             repository=repository,
             vault_provider=vault_provider,
             attachment_service=attachment_service,
+            thread_exists=self._thread_exists,
         )
+
+    async def _thread_exists(self, thread_id: str) -> bool:
+        """Check conversation liveness after a turn finishes writing checkpoints."""
+        try:
+            await self.store.load_thread(thread_id, {})
+        except NotFoundError:
+            return False
+        return True
 
     async def _history(
         self, thread: ThreadMetadata, context: ChatKitRequestContext

@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.types import Durability
 from pydantic_evals import Dataset
 from pydantic_graph import Graph
 from agentensor.module import AgentModule
@@ -318,6 +319,25 @@ def test_graph_trainer_extracts_ai_message() -> None:
     }
 
     assert GraphTrainer._extract_output(output_state) == "done"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("durability", [None, "exit", "sync"])
+async def test_graph_trainer_forwards_durability(durability: Durability | None) -> None:
+    """Orcheo can select exit durability without changing standalone defaults."""
+    trainer = GraphTrainer(
+        graph=MagicMock(),
+        dataset=MagicMock(),
+        epochs=1,
+        runtime_prompts={},
+        durability=durability,
+    )
+    trainer.graph.ainvoke = AsyncMock(return_value={"output": "done"})
+
+    result = await trainer.forward({"prompt": "input"})
+
+    assert result.metadata["payload"] == "done"
+    assert trainer.graph.ainvoke.call_args.kwargs["durability"] == durability
 
 
 def test_graph_trainer_falls_back_to_last_message() -> None:

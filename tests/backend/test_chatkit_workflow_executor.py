@@ -267,6 +267,27 @@ async def test_release_chatkit_checkpoints_keeps_latest_for_conversations():
 
 
 @pytest.mark.asyncio
+async def test_release_chatkit_checkpoints_preserves_state_when_lookup_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A liveness lookup failure must not destroy a resumable conversation."""
+    checkpointer = MagicMock()
+    checkpointer.aprune = AsyncMock()
+    checkpointer.adelete_thread = AsyncMock()
+
+    await _release_chatkit_checkpoints(
+        checkpointer,
+        {"configurable": {"thread_id": "thr_1"}},
+        {"thread_id": "thr_1"},
+        AsyncMock(side_effect=RuntimeError("store unavailable")),
+    )
+
+    checkpointer.adelete_thread.assert_not_awaited()
+    checkpointer.aprune.assert_awaited_once_with(["thr_1"], strategy="keep_latest")
+    assert "Failed to check whether ChatKit thread thr_1 still exists" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_release_chatkit_checkpoints_deletes_one_off_runs():
     checkpointer = MagicMock()
     checkpointer.adelete_thread = AsyncMock()
@@ -519,6 +540,7 @@ async def test_execute_graph_streams_updates_with_step_callback(
         "checkpointer",
         {"configurable": {"thread_id": "thread"}},
         {"message": "hello"},
+        None,
     )
 
 

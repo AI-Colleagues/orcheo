@@ -3,8 +3,8 @@
 from __future__ import annotations
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
-from contextlib import nullcontext
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
+from contextlib import aclosing, nullcontext
 from typing import Any, cast
 from uuid import UUID, uuid4
 from chatkit.errors import CustomStreamError
@@ -146,11 +146,13 @@ class WorkflowExecutor:
         repository: WorkflowRepository,
         vault_provider: Callable[[], BaseCredentialVault],
         attachment_service: AttachmentService | None = None,
+        thread_exists: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         """Store collaborators used during workflow execution."""
         self._repository = repository
         self._vault_provider = vault_provider
         self._attachment_service = attachment_service
+        self._thread_exists = thread_exists
 
     async def run(
         self,
@@ -458,15 +460,20 @@ class WorkflowExecutor:
                                 prior_count = await self._checkpoint_message_count(
                                     compiled, config
                                 )
-                                async for chunk in compiled.astream(
-                                    payload,
-                                    config=config,  # type: ignore[arg-type]
-                                    stream_mode="updates",
-                                    subgraphs=True,
-                                    durability=RUN_DURABILITY,
-                                ):
-                                    namespace, step = split_subgraph_update(chunk)
-                                    if step_callback is not None:  # pragma: no branch
+                                updates = cast(
+                                    AsyncGenerator[Any, None],
+                                    compiled.astream(
+                                        payload,
+                                        config=config,  # type: ignore[arg-type]
+                                        stream_mode="updates",
+                                        subgraphs=True,
+                                        durability=RUN_DURABILITY,
+                                    ),
+                                )
+                                # Exit checkpoints must finish before cleanup below.
+                                async with aclosing(updates) as stream:
+                                    async for chunk in stream:
+                                        namespace, step = split_subgraph_update(chunk)
                                         await step_callback(
                                             encode_step_namespace(step, namespace)
                                         )
@@ -498,7 +505,9 @@ class WorkflowExecutor:
                             )
                         return _annotate_new_messages(result, prior_count)
                 finally:
-                    await _release_chatkit_checkpoints(checkpointer, config, inputs)
+                    await _release_chatkit_checkpoints(
+                        checkpointer, config, inputs, self._thread_exists
+                    )
 
     async def _mark_run_succeeded(
         self,
@@ -711,13 +720,18 @@ def _resolve_runtime_thread_id(inputs: Mapping[str, Any], execution_id: str) -> 
 
 
 async def _release_chatkit_checkpoints(
-    checkpointer: Any, config: Mapping[str, Any], inputs: Mapping[str, Any]
+    checkpointer: Any,
+    config: Mapping[str, Any],
+    inputs: Mapping[str, Any],
+    thread_exists: Callable[[str], Awaitable[bool]] | None = None,
 ) -> None:
     """Drop checkpoint history the next turn does not need.
 
     A conversation keeps only its latest checkpoint, which carries the state
     and any pending interrupt into the next turn. A run without a conversation
     thread runs on its execution ID and is never resumed, so it keeps nothing.
+    Check for concurrent conversation deletion after the stream has closed: its
+    exit checkpoint may have been written after the store's deletion hook ran.
     """
     configurable = config.get("configurable")
     thread_id = (
@@ -727,8 +741,21 @@ async def _release_chatkit_checkpoints(
         return
     if _conversation_thread_id(inputs) is None:
         await discard_run_checkpoints(checkpointer, thread_id)
-    else:
-        await compact_thread_checkpoints(checkpointer, thread_id)
+        return
+    if thread_exists is not None:
+        try:
+            exists = await thread_exists(thread_id)
+        except Exception:
+            logger.warning(
+                "Failed to check whether ChatKit thread %s still exists",
+                thread_id,
+                exc_info=True,
+            )
+        else:
+            if not exists:
+                await discard_run_checkpoints(checkpointer, thread_id)
+                return
+    await compact_thread_checkpoints(checkpointer, thread_id)
 
 
 def _with_chatkit_model(

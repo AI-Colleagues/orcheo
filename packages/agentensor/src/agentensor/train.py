@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Durability
 from pydantic_evals import Dataset
 from pydantic_evals.reporting import EvaluationReport
 from agentensor.optim import Optimizer
@@ -138,6 +139,7 @@ class GraphTrainer(Trainer):
         runtime_prompts: Mapping[str, TextTensor],
         base_state: Mapping[str, Any] | None = None,
         graph_config: RunnableConfig | None = None,
+        durability: Durability | None = None,
         max_concurrency: int = 1,
         case_timeout: int = 30,
         stop_threshold: float = 2.0,
@@ -155,6 +157,7 @@ class GraphTrainer(Trainer):
         self.runtime_prompts = runtime_prompts
         self.base_state = base_state or {}
         self.graph_config = graph_config
+        self.durability = durability
         self.max_concurrency = max_concurrency
         self.case_timeout = case_timeout
         self.reports: list[EvaluationReport] = []
@@ -166,7 +169,9 @@ class GraphTrainer(Trainer):
         merged_inputs = self._merge_inputs(case_inputs)
         case_state = self._build_case_state(merged_inputs)
         output_state = await asyncio.wait_for(
-            self.graph.ainvoke(case_state, config=self.graph_config),
+            self.graph.ainvoke(
+                case_state, config=self.graph_config, durability=self.durability
+            ),
             timeout=self.case_timeout,
         )
         output_payload = self._extract_output(output_state)

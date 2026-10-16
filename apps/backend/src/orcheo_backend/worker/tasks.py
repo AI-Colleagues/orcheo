@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import time
+from contextlib import aclosing
 from typing import Any, cast
 from uuid import UUID, uuid4
 import psycopg
@@ -398,22 +399,25 @@ async def _stream_run_history_steps(
     from orcheo.persistence import RUN_DURABILITY
     from orcheo.tracing import encode_step_namespace, split_subgraph_update
 
-    async for chunk in compiled.astream(
-        state,
-        config=runtime_config,  # type: ignore[arg-type]
-        stream_mode="updates",
-        subgraphs=True,
-        durability=RUN_DURABILITY,
-    ):
-        namespace, step = split_subgraph_update(chunk)
-        tagged_step = encode_step_namespace(step, namespace)
-        try:
-            await history_store.append_step(execution_id, tagged_step)
-        except history_error_cls:
-            logger.exception(
-                "Failed to append run history step for execution %s",
-                execution_id,
-            )
+    async with aclosing(
+        compiled.astream(
+            state,
+            config=runtime_config,  # type: ignore[arg-type]
+            stream_mode="updates",
+            subgraphs=True,
+            durability=RUN_DURABILITY,
+        )
+    ) as stream:
+        async for chunk in stream:
+            namespace, step = split_subgraph_update(chunk)
+            tagged_step = encode_step_namespace(step, namespace)
+            try:
+                await history_store.append_step(execution_id, tagged_step)
+            except history_error_cls:
+                logger.exception(
+                    "Failed to append run history step for execution %s",
+                    execution_id,
+                )
 
 
 async def _mark_history_completed(

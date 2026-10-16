@@ -104,7 +104,10 @@ async def test_agentensor_node_resolves_prompts_from_config() -> None:
 @pytest.mark.asyncio
 async def test_agentensor_node_runs_evaluation_with_progress() -> None:
     class DummyGraph:
-        async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        async def ainvoke(
+            self, state: State, config: RunnableConfig, *, durability: str | None = None
+        ) -> dict[str, Any]:
+            assert durability == "exit"
             return {"node_results": {"echo": state["inputs"]["prompt"]}}
 
     progress_events: list[dict[str, Any]] = []
@@ -184,7 +187,10 @@ async def test_agentensor_node_run_applies_state_config_and_tags() -> None:
 @pytest.mark.asyncio
 async def test_agentensor_training_emits_checkpoints_and_best_config() -> None:
     class TrainingGraph:
-        async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        async def ainvoke(
+            self, state: State, config: RunnableConfig, *, durability: str | None = None
+        ) -> dict[str, Any]:
+            assert durability == "exit"
             prompt_obj = state["config"]["prompts"]["candidate"]
             prompt_text = (
                 prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
@@ -236,7 +242,10 @@ async def test_agentensor_training_emits_checkpoints_and_best_config() -> None:
 @pytest.mark.asyncio
 async def test_agentensor_training_requires_trainable_prompts() -> None:
     class TrainingGraph:
-        async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        async def ainvoke(
+            self, state: State, config: RunnableConfig, *, durability: str | None = None
+        ) -> dict[str, Any]:
+            assert durability == "exit"
             prompt_obj = state["config"]["prompts"]["candidate"]
             prompt_text = (
                 prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
@@ -289,7 +298,10 @@ async def test_run_training_returns_empty_when_dataset_missing() -> None:
 @pytest.mark.asyncio
 async def test_agentensor_training_adds_best_checkpoint_when_unscheduled() -> None:
     class TrainingGraph:
-        async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        async def ainvoke(
+            self, state: State, config: RunnableConfig, *, durability: str | None = None
+        ) -> dict[str, Any]:
+            assert durability == "exit"
             prompt_obj = state["config"]["prompts"]["candidate"]
             prompt_text = (
                 prompt_obj.text if hasattr(prompt_obj, "text") else prompt_obj["text"]
@@ -340,7 +352,10 @@ async def test_run_training_enforces_case_limit_and_best_checkpoint(
         def __init__(self) -> None:
             self.calls: list[dict[str, Any]] = []
 
-        async def ainvoke(self, state: State, config: RunnableConfig) -> dict[str, Any]:
+        async def ainvoke(
+            self, state: State, config: RunnableConfig, *, durability: str | None = None
+        ) -> dict[str, Any]:
+            assert durability == "exit"
             self.calls.append(state)
             return {"node_results": {"echo": state["inputs"]["prompt"]}}
 

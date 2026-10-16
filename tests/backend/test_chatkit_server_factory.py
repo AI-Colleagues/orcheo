@@ -6,12 +6,14 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
+from chatkit.store import NotFoundError
 from orcheo_backend.app.chatkit import server as chatkit_server_module
 from orcheo_backend.app.chatkit.server import (
     _coerce_config_set,
     _resolve_chatkit_backend,
     _resolve_chatkit_pool_settings,
     _resolve_chatkit_postgres_dsn,
+    OrcheoChatKitServer,
     create_chatkit_server,
 )
 
@@ -128,6 +130,19 @@ def test_create_chatkit_server_postgres(monkeypatch: pytest.MonkeyPatch) -> None
         kwargs["on_threads_deleted"]
         is chatkit_server_module._delete_chatkit_thread_checkpoints
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("exists", [True, False])
+async def test_server_checks_thread_liveness_after_execution(exists: bool) -> None:
+    store = MagicMock()
+    store.load_thread = AsyncMock(
+        side_effect=None if exists else NotFoundError("deleted")
+    )
+    server = OrcheoChatKitServer(store, MagicMock(), MagicMock())
+
+    assert await server._workflow_executor._thread_exists("thr_1") is exists
+    store.load_thread.assert_awaited_once_with("thr_1", {})
 
 
 @pytest.mark.asyncio

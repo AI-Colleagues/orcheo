@@ -1296,6 +1296,35 @@ async def test_postgres_store_prune_notifies_deletion_hook(
 
 
 @pytest.mark.asyncio
+async def test_prune_cleans_checkpoints_before_attachment_deletion_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An S3 failure must not skip cleanup for already-deleted threads."""
+    responses = [
+        {"rows": [{"id": "thr_a"}, {"id": "thr_b"}]},
+        {"rows": [{"id": "file", "blob_backend": "s3", "blob_key": "blob"}]},
+        {},
+        {},
+    ]
+    store = make_store(monkeypatch, responses=responses)
+    hook = AsyncMock()
+    store._on_threads_deleted = hook
+
+    async def delete_blob(key: str) -> None:
+        hook.assert_awaited_once_with(["thr_a", "thr_b"])
+        raise RuntimeError("S3 unavailable")
+
+    store._attachment_service = SimpleNamespace(
+        s3_backend=SimpleNamespace(delete=delete_blob)
+    )
+
+    with pytest.raises(RuntimeError, match="S3 unavailable"):
+        await store.prune_threads_older_than(_timestamp())
+
+    hook.assert_awaited_once_with(["thr_a", "thr_b"])
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_logs_deletion_hook_failures(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
