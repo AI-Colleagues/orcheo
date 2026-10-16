@@ -7,7 +7,7 @@ import pytest
 from chatkit.errors import CustomStreamError
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from orcheo_backend.app.chatkit import workflow_executor as workflow_executor_module
 from orcheo_backend.app.chatkit.workflow_executor import (
     _NEW_MESSAGES_KEY,
@@ -20,6 +20,7 @@ from orcheo_backend.app.chatkit.workflow_executor import (
     _mark_chatkit_history_completed,
     _mark_chatkit_history_failed,
     _pending_interrupts,
+    _release_chatkit_checkpoints,
     _resolve_runtime_thread_id,
     _resume_value_from_inputs,
     _start_chatkit_history,
@@ -251,6 +252,47 @@ def test_resolve_runtime_thread_id_prefers_inputs():
     assert _resolve_runtime_thread_id({"thread_id": " id "}, "exec") == "id"
 
 
+@pytest.mark.asyncio
+async def test_release_chatkit_checkpoints_keeps_latest_for_conversations():
+    checkpointer = MagicMock()
+    checkpointer.aprune = AsyncMock()
+
+    await _release_chatkit_checkpoints(
+        checkpointer,
+        {"configurable": {"thread_id": "thr_1"}},
+        {"thread_id": "thr_1"},
+    )
+
+    checkpointer.aprune.assert_awaited_once_with(["thr_1"], strategy="keep_latest")
+
+
+@pytest.mark.asyncio
+async def test_release_chatkit_checkpoints_deletes_one_off_runs():
+    checkpointer = MagicMock()
+    checkpointer.adelete_thread = AsyncMock()
+    checkpointer.aprune = AsyncMock()
+
+    await _release_chatkit_checkpoints(
+        checkpointer, {"configurable": {"thread_id": "exec-1"}}, {"message": "hi"}
+    )
+
+    checkpointer.adelete_thread.assert_awaited_once_with("exec-1")
+    checkpointer.aprune.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("config", [{}, {"configurable": {}}, {"configurable": 1}])
+async def test_release_chatkit_checkpoints_skips_configs_without_thread(config):
+    checkpointer = MagicMock()
+    checkpointer.adelete_thread = AsyncMock()
+    checkpointer.aprune = AsyncMock()
+
+    await _release_chatkit_checkpoints(checkpointer, config, {"thread_id": "thr_1"})
+
+    checkpointer.adelete_thread.assert_not_awaited()
+    checkpointer.aprune.assert_not_awaited()
+
+
 def test_resolve_runtime_thread_id_falls_back():
     assert _resolve_runtime_thread_id({}, "exec") == "exec"
 
@@ -379,7 +421,10 @@ async def test_execute_graph_streams_updates_with_step_callback(
     progress_context_events: list[str] = []
 
     class DummyCompiled:
-        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
+        async def astream(
+            self, payload, *, config, stream_mode, subgraphs=False, durability=None
+        ):
+            assert durability == "exit"
             assert payload == {
                 "inputs": {"message": "hello"},
                 "workspace_id": None,
@@ -452,6 +497,10 @@ async def test_execute_graph_streams_updates_with_step_callback(
         "tool_progress_context",
         lambda callback: ProgressContext(),
     )
+    release = AsyncMock()
+    monkeypatch.setattr(
+        workflow_executor_module, "_release_chatkit_checkpoints", release
+    )
 
     executor = WorkflowExecutor(repository=object(), vault_provider=lambda: object())
     result = await executor._execute_graph(
@@ -466,6 +515,11 @@ async def test_execute_graph_streams_updates_with_step_callback(
     assert result == {"reply": "done"}
     assert captured_steps == [{"node": {"status": "running"}}]
     assert progress_context_events == ["enter", "exit"]
+    release.assert_awaited_once_with(
+        "checkpointer",
+        {"configurable": {"thread_id": "thread"}},
+        {"message": "hello"},
+    )
 
 
 @pytest.mark.asyncio
@@ -480,7 +534,10 @@ async def test_execute_graph_annotates_current_turn_messages(
         def __init__(self) -> None:
             self._streamed = False
 
-        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
+        async def astream(
+            self, payload, *, config, stream_mode, subgraphs=False, durability=None
+        ):
+            assert durability == "exit"
             self._streamed = True
             yield {"node": {"status": "running"}}
 
@@ -567,7 +624,10 @@ async def test_execute_graph_surfaces_new_interrupt_as_reply(
         value = {"message": "What is your guess?"}
 
     class DummyCompiled:
-        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
+        async def astream(
+            self, payload, *, config, stream_mode, subgraphs=False, durability=None
+        ):
+            assert durability == "exit"
             yield {"__interrupt__": (DummyInterrupt(),)}
 
         async def aget_state(self, config):
@@ -655,7 +715,8 @@ async def test_execute_graph_invoke_interrupt_fallback_does_not_leak_state(
     interrupt_payload = {"message": "Need your input"}
 
     class DummyCompiled:
-        async def ainvoke(self, payload, *, config):
+        async def ainvoke(self, payload, *, config, durability=None):
+            assert durability == "exit"
             return {
                 "__interrupt__": ({"value": interrupt_payload},),
                 "secret_state": "must-not-leak",
@@ -742,7 +803,10 @@ async def test_execute_graph_resumes_pending_interrupt_with_chatkit_message(
         def __init__(self) -> None:
             self._streamed = False
 
-        async def astream(self, payload, *, config, stream_mode, subgraphs=False):
+        async def astream(
+            self, payload, *, config, stream_mode, subgraphs=False, durability=None
+        ):
+            assert durability == "exit"
             captured["payload"] = payload
             self._streamed = True
             yield {"finish": {"assistant_message": "Correct."}}
@@ -1007,7 +1071,8 @@ async def test_execute_graph_passes_workspace_id_to_initial_state(
     captured: dict[str, object] = {}
 
     class DummyCompiled:
-        async def ainvoke(self, payload, *, config):
+        async def ainvoke(self, payload, *, config, durability=None):
+            assert durability == "exit"
             captured["payload"] = payload
             captured["config"] = config
             return {"reply": "done"}

@@ -185,8 +185,14 @@ def test_extract_immediate_response_skips_invalid_entries() -> None:
 
 
 class _DummyCheckpointer:
+    def __init__(self) -> None:
+        self.deleted_threads: list[str] = []
+
     async def __aenter__(self) -> object:
         return self
+
+    async def adelete_thread(self, thread_id: str) -> None:
+        self.deleted_threads.append(thread_id)
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         return None
@@ -197,10 +203,14 @@ class _DummyCompiled:
         self._final_state = final_state
         self.seen_state: object | None = None
         self.seen_config: object | None = None
+        self.seen_durability: str | None = None
 
-    async def ainvoke(self, state: object, config: object) -> dict[str, object]:
+    async def ainvoke(
+        self, state: object, config: object, durability: str | None = None
+    ) -> dict[str, object]:
         self.seen_state = state
         self.seen_config = config
+        self.seen_durability = durability
         return self._final_state
 
 
@@ -357,11 +367,10 @@ async def test_try_immediate_response_returns_plain_text(
         }
     }
     compiled = _DummyCompiled(final_state)
+    checkpointer = _DummyCheckpointer()
     monkeypatch.setattr(triggers, "get_repository", lambda: _DummyRepository())
     monkeypatch.setattr(triggers, "build_graph", lambda graph: _DummyGraph(compiled))
-    monkeypatch.setattr(
-        triggers, "create_checkpointer", lambda settings: _DummyCheckpointer()
-    )
+    monkeypatch.setattr(triggers, "create_checkpointer", lambda settings: checkpointer)
     monkeypatch.setattr(
         triggers, "create_graph_store", lambda settings: _DummyCheckpointer()
     )
@@ -384,6 +393,10 @@ async def test_try_immediate_response_returns_plain_text(
     assert isinstance(response, PlainTextResponse)
     assert response.body == b"pong"
     assert should_queue is True
+    # The check run saves one checkpoint at exit and drops it once it is read.
+    assert compiled.seen_durability == "exit"
+    assert compiled.seen_config == {"execution_id": checkpointer.deleted_threads[0]}
+    assert checkpointer.deleted_threads[0].startswith("immediate-response-check-")
 
 
 @pytest.mark.asyncio()

@@ -289,16 +289,15 @@ async def _execute_workflow(
                         state_config,
                         workspace_id,
                     )
-                    await _stream_run_history_steps(
+                    final_state = await _run_to_final_state(
                         compiled=compiled,
+                        checkpointer=checkpointer,
                         state=state,
                         runtime_config=runtime_config,
                         history_store=history_store,
                         execution_id=execution_id,
                         history_error_cls=RunHistoryError,
                     )
-                    final_state = await compiled.aget_state(runtime_config)
-                    final_state = getattr(final_state, "values", final_state)
 
         output = _extract_output(final_state)
         if owner_token is not None:
@@ -358,6 +357,34 @@ async def _start_history_record(
         )
 
 
+async def _run_to_final_state(
+    *,
+    compiled: Any,
+    checkpointer: Any,
+    state: Any,
+    runtime_config: Any,
+    history_store: Any,
+    execution_id: str,
+    history_error_cls: type[Exception],
+) -> Any:
+    """Run the graph and return its final state, then drop the run's checkpoints."""
+    from orcheo.persistence import discard_run_checkpoints
+
+    try:
+        await _stream_run_history_steps(
+            compiled=compiled,
+            state=state,
+            runtime_config=runtime_config,
+            history_store=history_store,
+            execution_id=execution_id,
+            history_error_cls=history_error_cls,
+        )
+        final_state = await compiled.aget_state(runtime_config)
+        return getattr(final_state, "values", final_state)
+    finally:
+        await discard_run_checkpoints(checkpointer, execution_id)
+
+
 async def _stream_run_history_steps(
     *,
     compiled: Any,
@@ -368,6 +395,7 @@ async def _stream_run_history_steps(
     history_error_cls: type[Exception],
 ) -> None:
     """Append streamed node updates to the run history store."""
+    from orcheo.persistence import RUN_DURABILITY
     from orcheo.tracing import encode_step_namespace, split_subgraph_update
 
     async for chunk in compiled.astream(
@@ -375,6 +403,7 @@ async def _stream_run_history_steps(
         config=runtime_config,  # type: ignore[arg-type]
         stream_mode="updates",
         subgraphs=True,
+        durability=RUN_DURABILITY,
     ):
         namespace, step = split_subgraph_update(chunk)
         tagged_step = encode_step_namespace(step, namespace)

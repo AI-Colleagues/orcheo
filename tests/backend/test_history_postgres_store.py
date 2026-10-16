@@ -1120,6 +1120,26 @@ async def test_postgres_store_ensure_initialized_rollback_on_error(
 
 
 @pytest.mark.asyncio
+async def test_postgres_store_list_execution_ids_completed_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Listing selects the same finished histories pruning would delete."""
+    store = make_store(
+        monkeypatch, [{"rows": [{"execution_id": "exec-1"}, {"execution_id": "e2"}]}]
+    )
+    cutoff = datetime(2026, 1, 1, tzinfo=UTC)
+
+    execution_ids = await store.list_execution_ids_completed_before(cutoff)
+
+    assert execution_ids == ["exec-1", "e2"]
+    conn = store._pool._connection  # type: ignore[union-attr]
+    query, params = conn.queries[0]
+    assert query.strip().startswith("SELECT execution_id")
+    assert "completed_at IS NOT NULL" in query
+    assert params == (cutoff,)
+
+
+@pytest.mark.asyncio
 async def test_postgres_store_prune_histories_older_than(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

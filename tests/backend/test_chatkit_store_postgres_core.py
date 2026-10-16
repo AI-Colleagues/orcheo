@@ -1250,3 +1250,59 @@ async def test_prune_threads_older_than_skips_rows_without_storage_path(
 
     assert count == 1
     assert deleted_paths == []
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_delete_thread_notifies_deletion_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deleted thread's ID reaches the hook so its checkpoints go with it."""
+    store = make_store(monkeypatch, responses=[{"rows": [{"id": "thr_delete"}]}])
+    hook = AsyncMock()
+    store._on_threads_deleted = hook
+
+    await store.delete_thread("thr_delete", {})
+
+    hook.assert_awaited_once_with(["thr_delete"])
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_delete_thread_skips_hook_when_nothing_deleted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A thread owned by someone else is not deleted, so nothing is cleaned up."""
+    store = make_store(monkeypatch, responses=[{"rows": []}])
+    hook = AsyncMock()
+    store._on_threads_deleted = hook
+
+    await store.delete_thread("thr_other", {"owner_key": "owner-1"})
+
+    hook.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_prune_notifies_deletion_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pruned thread IDs reach the hook after the rows are deleted."""
+    responses = [{"rows": [{"id": "thr_a"}, {"id": "thr_b"}]}, {"rows": []}, {}, {}]
+    store = make_store(monkeypatch, responses=responses)
+    hook = AsyncMock()
+    store._on_threads_deleted = hook
+
+    assert await store.prune_threads_older_than(_timestamp()) == 2
+
+    hook.assert_awaited_once_with(["thr_a", "thr_b"])
+
+
+@pytest.mark.asyncio
+async def test_postgres_store_logs_deletion_hook_failures(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failing hook never fails the thread deletion."""
+    store = make_store(monkeypatch, responses=[{"rows": [{"id": "thr_delete"}]}])
+    store._on_threads_deleted = AsyncMock(side_effect=RuntimeError("db down"))
+
+    await store.delete_thread("thr_delete", {})
+
+    assert "Failed to clean up after deleting 1 ChatKit thread(s)" in caplog.text

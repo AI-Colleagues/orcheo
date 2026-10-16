@@ -378,6 +378,23 @@ class PostgresRunHistoryStore:
                 await conn.execute("DELETE FROM execution_history_steps")
                 await conn.execute("DELETE FROM execution_history")
 
+    async def list_execution_ids_completed_before(self, cutoff: datetime) -> list[str]:
+        """Return the execution IDs ``prune_histories_older_than`` would delete."""
+        await self._ensure_initialized()
+        async with self._lock:
+            async with self._connection() as conn:
+                cursor = await conn.execute(
+                    """
+                    SELECT execution_id
+                      FROM execution_history
+                     WHERE completed_at IS NOT NULL
+                       AND completed_at < %s
+                    """,
+                    (cutoff,),
+                )
+                rows = await cursor.fetchall()
+        return [str(row["execution_id"]) for row in rows]
+
     async def prune_histories_older_than(self, cutoff: datetime) -> int:
         """Delete finished histories (and their trace steps) completed before cutoff.
 

@@ -15,14 +15,34 @@ class FakeHistoryStore:
     def __init__(self, pruned: int = 0) -> None:
         self.pruned = pruned
         self.cutoffs: list[datetime] = []
+        self.expired_ids: list[str] = []
+        self.events: list[str] = []
+
+    async def list_execution_ids_completed_before(self, cutoff: datetime) -> list[str]:
+        self.events.append("list")
+        return list(self.expired_ids)
 
     async def prune_histories_older_than(self, cutoff: datetime) -> int:
+        self.events.append("prune")
         self.cutoffs.append(cutoff)
         return self.pruned
 
 
 @pytest.fixture
-def fake_store(monkeypatch: pytest.MonkeyPatch) -> FakeHistoryStore:
+def deleted_checkpoints(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    deleted: list[list[str]] = []
+
+    async def _delete(_settings: object, thread_ids: list[str]) -> None:
+        deleted.append(list(thread_ids))
+
+    monkeypatch.setattr(retention, "delete_thread_checkpoints", _delete)
+    return deleted
+
+
+@pytest.fixture
+def fake_store(
+    monkeypatch: pytest.MonkeyPatch, deleted_checkpoints: list[list[str]]
+) -> FakeHistoryStore:
     store = FakeHistoryStore(pruned=2)
     monkeypatch.setattr(retention, "PostgresRunHistoryStore", FakeHistoryStore)
     monkeypatch.setitem(retention._history_store_ref, "store", store)
@@ -70,6 +90,34 @@ async def test_prune_expired_traces_uses_retention_cutoff(
     assert (
         before - timedelta(days=5) <= cutoff <= datetime.now(tz=UTC) - timedelta(days=5)
     )
+
+
+@pytest.mark.asyncio
+async def test_prune_expired_traces_deletes_checkpoints_before_histories(
+    fake_store: FakeHistoryStore, deleted_checkpoints: list[list[str]]
+) -> None:
+    fake_store.expired_ids = ["exec-1", "exec-2"]
+
+    assert await retention.prune_expired_traces(fake_store, 5) == 2  # type: ignore[arg-type]
+
+    assert deleted_checkpoints == [["exec-1", "exec-2"]]
+    assert fake_store.events == ["list", "prune"]
+
+
+@pytest.mark.asyncio
+async def test_prune_expired_traces_keeps_histories_when_checkpoint_cleanup_fails(
+    monkeypatch: pytest.MonkeyPatch, fake_store: FakeHistoryStore
+) -> None:
+    async def _fail(_settings: object, _thread_ids: list[str]) -> None:
+        raise RuntimeError("checkpoint db down")
+
+    monkeypatch.setattr(retention, "delete_thread_checkpoints", _fail)
+    fake_store.expired_ids = ["exec-1"]
+
+    with pytest.raises(RuntimeError, match="checkpoint db down"):
+        await retention.prune_expired_traces(fake_store, 5)  # type: ignore[arg-type]
+
+    assert fake_store.cutoffs == []
 
 
 @pytest.mark.asyncio

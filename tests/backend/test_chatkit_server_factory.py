@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from orcheo_backend.app.chatkit import server as chatkit_server_module
 from orcheo_backend.app.chatkit.server import (
@@ -124,6 +124,24 @@ def test_create_chatkit_server_postgres(monkeypatch: pytest.MonkeyPatch) -> None
     mock_postgres_store.assert_called_once()
     args, kwargs = mock_postgres_store.call_args
     assert args[0] == "postgresql://test"
+    assert (
+        kwargs["on_threads_deleted"]
+        is chatkit_server_module._delete_chatkit_thread_checkpoints
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_chatkit_thread_checkpoints_uses_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = object()
+    delete = AsyncMock()
+    monkeypatch.setattr(chatkit_server_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(chatkit_server_module, "delete_thread_checkpoints", delete)
+
+    await chatkit_server_module._delete_chatkit_thread_checkpoints(["thr_1"])
+
+    delete.assert_awaited_once_with(settings, ["thr_1"])
 
 
 def test_create_chatkit_server_rejects_non_postgres_backend(

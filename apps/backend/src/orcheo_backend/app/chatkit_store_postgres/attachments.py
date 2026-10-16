@@ -204,6 +204,7 @@ class AttachmentStoreMixin(BasePostgresStore):
                         exc_info=True,
                     )
 
+        await self._notify_threads_deleted(thread_ids)
         return len(thread_ids)
 
     @staticmethod

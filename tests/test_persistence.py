@@ -1,7 +1,9 @@
 """Tests for the persistence helper utilities."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 import pytest
 from dynaconf import Dynaconf
 from orcheo.postgres_pools import pool_kwargs
@@ -276,3 +278,91 @@ async def test_create_graph_store_invalid_backend() -> None:
     with pytest.raises(ValueError):
         async with create_graph_store(bad_settings):
             raise AssertionError("context should not yield")
+
+
+@pytest.mark.asyncio
+async def test_discard_run_checkpoints_deletes_thread() -> None:
+    """A finished run's thread is deleted outright."""
+    checkpointer = MagicMock()
+    checkpointer.adelete_thread = AsyncMock()
+
+    await persistence.discard_run_checkpoints(checkpointer, "exec-1")
+
+    checkpointer.adelete_thread.assert_awaited_once_with("exec-1")
+
+
+@pytest.mark.asyncio
+async def test_discard_run_checkpoints_logs_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Cleanup failures are logged so they never fail the run."""
+    checkpointer = MagicMock()
+    checkpointer.adelete_thread = AsyncMock(side_effect=RuntimeError("db down"))
+
+    await persistence.discard_run_checkpoints(checkpointer, "exec-1")
+
+    assert "Failed to delete checkpoints for thread exec-1" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_compact_thread_checkpoints_keeps_latest() -> None:
+    """A conversation thread keeps only its latest checkpoint."""
+    checkpointer = MagicMock()
+    checkpointer.aprune = AsyncMock()
+
+    await persistence.compact_thread_checkpoints(checkpointer, "thread-1")
+
+    checkpointer.aprune.assert_awaited_once_with(["thread-1"], strategy="keep_latest")
+
+
+@pytest.mark.asyncio
+async def test_compact_thread_checkpoints_logs_failures(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Prune failures are logged so they never fail the turn."""
+    checkpointer = MagicMock()
+    checkpointer.aprune = AsyncMock(side_effect=RuntimeError("conflict"))
+
+    await persistence.compact_thread_checkpoints(checkpointer, "thread-1")
+
+    assert "Failed to prune checkpoints for thread thread-1" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_delete_thread_checkpoints_batches_unique_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Thread IDs are de-duplicated and deleted in bounded batches."""
+    checkpointer = MagicMock()
+    checkpointer.aprune = AsyncMock()
+    opened: list[object] = []
+
+    @asynccontextmanager
+    async def fake_create_checkpointer(settings: object) -> AsyncIterator[MagicMock]:
+        opened.append(settings)
+        yield checkpointer
+
+    monkeypatch.setattr(persistence, "create_checkpointer", fake_create_checkpointer)
+    monkeypatch.setattr(persistence, "_CHECKPOINT_DELETE_BATCH_SIZE", 2)
+    settings = cast(Dynaconf, object())
+
+    await persistence.delete_thread_checkpoints(settings, ["a", "b", "a", "c"])
+
+    assert opened == [settings]
+    assert checkpointer.aprune.await_args_list == [
+        call(["a", "b"], strategy="delete"),
+        call(["c"], strategy="delete"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_thread_checkpoints_skips_empty_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No checkpointer connection is taken when there is nothing to delete."""
+    factory = MagicMock()
+    monkeypatch.setattr(persistence, "create_checkpointer", factory)
+
+    await persistence.delete_thread_checkpoints(cast(Dynaconf, object()), [])
+
+    factory.assert_not_called()

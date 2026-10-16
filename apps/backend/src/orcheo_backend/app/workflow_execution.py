@@ -17,6 +17,11 @@ from orcheo.graph.state import State
 from orcheo.nodes.ai.agentensor import AgentensorNode
 from orcheo.nodes.ai.tools.context import tool_progress_context
 from orcheo.nodes.browser import close_browser_sessions_for_scope
+from orcheo.persistence import (
+    RUN_DURABILITY,
+    delete_thread_checkpoints,
+    discard_run_checkpoints,
+)
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import (
     RunnableConfigModel,
@@ -232,6 +237,7 @@ async def _stream_workflow_updates(
             config=config,  # type: ignore[arg-type]
             stream_mode="updates",
             subgraphs=True,
+            durability=RUN_DURABILITY,
         ):  # pragma: no cover
             namespace, step = split_subgraph_update(chunk)
             tagged_step = encode_step_namespace(step, namespace)
@@ -444,16 +450,19 @@ async def _execute_trusted_workflow_in_worker(
             )
             _log_sensitive_debug("Initial state: %s", state)
 
-            await _run_workflow_stream(
-                compiled_graph,
-                state,
-                runtime_config,
-                history_store,
-                execution_id,
-                websocket,
-                tracer,
-                span,
-            )
+            try:
+                await _run_workflow_stream(
+                    compiled_graph,
+                    state,
+                    runtime_config,
+                    history_store,
+                    execution_id,
+                    websocket,
+                    tracer,
+                    span,
+                )
+            finally:
+                await discard_run_checkpoints(checkpointer, execution_id)
 
 
 async def execute_workflow_recorded(
@@ -526,16 +535,19 @@ async def execute_workflow_recorded(
                             state_config,
                             workspace_id,
                         )
-                        final_state = await _run_workflow_stream(
-                            compiled_graph,
-                            state,
-                            runtime_config,
-                            history_store,
-                            execution_id,
-                            None,
-                            tracer,
-                            span_context.span,
-                        )
+                        try:
+                            final_state = await _run_workflow_stream(
+                                compiled_graph,
+                                state,
+                                runtime_config,
+                                history_store,
+                                execution_id,
+                                None,
+                                tracer,
+                                span_context.span,
+                            )
+                        finally:
+                            await discard_run_checkpoints(checkpointer, execution_id)
 
             completion_payload = {"status": "completed"}
             record_workflow_completion(span_context.span)
@@ -769,6 +781,8 @@ async def _run_evaluation_node(
             complete=True,
         )
         raise
+    finally:
+        await _discard_agentensor_checkpoints(settings, execution_id)
 
 
 async def _run_training_node(
@@ -895,6 +909,23 @@ async def _run_training_node(
                 complete=True,
             )
             raise
+        finally:
+            await _discard_agentensor_checkpoints(settings, execution_id)
+
+
+async def _discard_agentensor_checkpoints(settings: Any, execution_id: str) -> None:
+    """Delete the checkpoints an evaluation or training run left behind.
+
+    Every case runs on the execution's thread, and nothing reads it afterwards.
+    """
+    try:
+        await delete_thread_checkpoints(settings, [execution_id])
+    except Exception:
+        logger.warning(
+            "Failed to delete checkpoints for execution %s",
+            execution_id,
+            exc_info=True,
+        )
 
 
 async def execute_workflow_evaluation(

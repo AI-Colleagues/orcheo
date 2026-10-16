@@ -9,7 +9,7 @@ dependencies = [
   "langchain-deepseek>=1.0.1",
   "langchain-ollama>=0.3.3",
   "langchain-openai>=0.3.18",
-  "langgraph>=1.0.5",
+  "langgraph>=1.2.15",
   "logfire>=3.14.0",
   "pydantic-ai>=0.2.4"
 ]

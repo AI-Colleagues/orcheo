@@ -3,12 +3,25 @@
 from __future__ import annotations
 import asyncio
 import importlib
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, cast
+from typing import Any, Final, Literal, cast
 from dynaconf import Dynaconf
 from orcheo.config import CheckpointBackend, GraphStoreBackend
 from orcheo.postgres_pools import connection_kwargs, pool_kwargs
+
+
+logger = logging.getLogger(__name__)
+
+# LangGraph durability mode for every Orcheo graph run. ``"exit"`` saves a
+# single checkpoint when the run finishes, fails or pauses at an interrupt,
+# instead of a full copy of every changed state channel after each step.
+# Orcheo never resumes a crashed run from a mid-run checkpoint, so the
+# per-step history was written but never read.
+RUN_DURABILITY: Final[Literal["exit"]] = "exit"
+
+_CHECKPOINT_DELETE_BATCH_SIZE = 500
 
 
 AsyncPostgresSaver: Any | None
@@ -149,3 +162,45 @@ async def create_graph_store(settings: Dynaconf) -> AsyncIterator[Any]:
                 _state.graph_store = store
 
     yield _state.graph_store
+
+
+async def discard_run_checkpoints(checkpointer: Any, thread_id: str) -> None:
+    """Delete a finished run's checkpoints, logging instead of raising on failure.
+
+    Only for threads that are never resumed, such as runs keyed by their
+    execution ID: the final state has already been read and the trace lives in
+    the run history.
+    """
+    try:
+        await checkpointer.adelete_thread(thread_id)
+    except Exception:
+        logger.warning(
+            "Failed to delete checkpoints for thread %s", thread_id, exc_info=True
+        )
+
+
+async def compact_thread_checkpoints(checkpointer: Any, thread_id: str) -> None:
+    """Keep only the latest checkpoint of a long-lived thread, logging failures.
+
+    The latest checkpoint (and its pending writes, such as an interrupt) is all
+    a later turn needs to continue the conversation.
+    """
+    try:
+        await checkpointer.aprune([thread_id], strategy="keep_latest")
+    except Exception:
+        logger.warning(
+            "Failed to prune checkpoints for thread %s", thread_id, exc_info=True
+        )
+
+
+async def delete_thread_checkpoints(
+    settings: Dynaconf, thread_ids: Sequence[str]
+) -> None:
+    """Delete every checkpoint saved for ``thread_ids``."""
+    unique_ids = list(dict.fromkeys(str(thread_id) for thread_id in thread_ids))
+    if not unique_ids:
+        return
+    async with create_checkpointer(settings) as checkpointer:
+        for start in range(0, len(unique_ids), _CHECKPOINT_DELETE_BATCH_SIZE):
+            batch = unique_ids[start : start + _CHECKPOINT_DELETE_BATCH_SIZE]
+            await checkpointer.aprune(batch, strategy="delete")

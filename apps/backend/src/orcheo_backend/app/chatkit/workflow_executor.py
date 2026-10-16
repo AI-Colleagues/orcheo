@@ -16,7 +16,13 @@ from orcheo.config import get_settings
 from orcheo.graph.builder import build_graph
 from orcheo.models import CredentialAccessContext
 from orcheo.nodes.ai.tools.context import tool_progress_context
-from orcheo.persistence import create_checkpointer, create_graph_store
+from orcheo.persistence import (
+    RUN_DURABILITY,
+    compact_thread_checkpoints,
+    create_checkpointer,
+    create_graph_store,
+    discard_run_checkpoints,
+)
 from orcheo.runtime.credentials import CredentialResolver, credential_resolution
 from orcheo.runtime.runnable_config import merge_runnable_configs
 from orcheo.tracing import encode_step_namespace, split_subgraph_update
@@ -436,53 +442,63 @@ class WorkflowExecutor:
                         workspace_id=workspace_id,
                     )
 
-                with credential_resolution(credential_resolver):
-                    if (
-                        step_callback is not None
-                        and hasattr(compiled, "astream")
-                        and hasattr(compiled, "aget_state")
-                    ):
-                        progress_context = (
-                            tool_progress_context(step_callback)
-                            if step_callback is not None
-                            else nullcontext()
-                        )
-                        with progress_context:
-                            prior_count = await self._checkpoint_message_count(
-                                compiled, config
+                try:
+                    with credential_resolution(credential_resolver):
+                        if (
+                            step_callback is not None
+                            and hasattr(compiled, "astream")
+                            and hasattr(compiled, "aget_state")
+                        ):
+                            progress_context = (
+                                tool_progress_context(step_callback)
+                                if step_callback is not None
+                                else nullcontext()
                             )
-                            async for chunk in compiled.astream(
-                                payload,
-                                config=config,  # type: ignore[arg-type]
-                                stream_mode="updates",
-                                subgraphs=True,
-                            ):
-                                namespace, step = split_subgraph_update(chunk)
-                                if step_callback is not None:  # pragma: no branch
-                                    await step_callback(
-                                        encode_step_namespace(step, namespace)
-                                    )
-                            state_snapshot_config = cast(Any, config)
-                            snapshot = await compiled.aget_state(state_snapshot_config)
-                            values = getattr(snapshot, "values", snapshot)
-                            interrupts = getattr(snapshot, "interrupts", ())
-                            if interrupts:
-                                return _state_with_interrupts(values, interrupts)
-                            return _annotate_new_messages(values, prior_count)
+                            with progress_context:
+                                prior_count = await self._checkpoint_message_count(
+                                    compiled, config
+                                )
+                                async for chunk in compiled.astream(
+                                    payload,
+                                    config=config,  # type: ignore[arg-type]
+                                    stream_mode="updates",
+                                    subgraphs=True,
+                                    durability=RUN_DURABILITY,
+                                ):
+                                    namespace, step = split_subgraph_update(chunk)
+                                    if step_callback is not None:  # pragma: no branch
+                                        await step_callback(
+                                            encode_step_namespace(step, namespace)
+                                        )
+                                state_snapshot_config = cast(Any, config)
+                                snapshot = await compiled.aget_state(
+                                    state_snapshot_config
+                                )
+                                values = getattr(snapshot, "values", snapshot)
+                                interrupts = getattr(snapshot, "interrupts", ())
+                                if interrupts:
+                                    return _state_with_interrupts(values, interrupts)
+                                return _annotate_new_messages(values, prior_count)
 
-                    prior_count = await self._checkpoint_message_count(compiled, config)
-                    result = await compiled.ainvoke(payload, config=config)
-                    if isinstance(result, Mapping) and result.get("__interrupt__"):
-                        snapshot = await compiled.aget_state(cast(Any, config))
-                        values = getattr(snapshot, "values", result)
-                        interrupts = getattr(snapshot, "interrupts", ())
-                        # Fall back to the invoke result's own interrupt list rather
-                        # than the whole state mapping, which would otherwise leak
-                        # raw graph state into ``__interrupt__`` / the reply text.
-                        return _state_with_interrupts(
-                            values, interrupts or result.get("__interrupt__", ())
+                        prior_count = await self._checkpoint_message_count(
+                            compiled, config
                         )
-                    return _annotate_new_messages(result, prior_count)
+                        result = await compiled.ainvoke(
+                            payload, config=config, durability=RUN_DURABILITY
+                        )
+                        if isinstance(result, Mapping) and result.get("__interrupt__"):
+                            snapshot = await compiled.aget_state(cast(Any, config))
+                            values = getattr(snapshot, "values", result)
+                            interrupts = getattr(snapshot, "interrupts", ())
+                            # Fall back to the invoke result's own interrupt list rather
+                            # than the whole state mapping, which would otherwise leak
+                            # raw graph state into ``__interrupt__`` / the reply text.
+                            return _state_with_interrupts(
+                                values, interrupts or result.get("__interrupt__", ())
+                            )
+                        return _annotate_new_messages(result, prior_count)
+                finally:
+                    await _release_chatkit_checkpoints(checkpointer, config, inputs)
 
     async def _mark_run_succeeded(
         self,
@@ -678,15 +694,41 @@ def _with_thread_id(config: Mapping[str, Any], thread_id: str) -> dict[str, Any]
     return normalized
 
 
-def _resolve_runtime_thread_id(inputs: Mapping[str, Any], execution_id: str) -> str:
-    """Resolve the LangGraph thread identifier for ChatKit executions."""
+def _conversation_thread_id(inputs: Mapping[str, Any]) -> str | None:
+    """Return the conversation's thread identifier carried in ``inputs``."""
     for key in ("thread_id", "session_id"):
         candidate = inputs.get(key)
         if isinstance(candidate, str):
             normalized = candidate.strip()
             if normalized:
                 return normalized
-    return execution_id
+    return None
+
+
+def _resolve_runtime_thread_id(inputs: Mapping[str, Any], execution_id: str) -> str:
+    """Resolve the LangGraph thread identifier for ChatKit executions."""
+    return _conversation_thread_id(inputs) or execution_id
+
+
+async def _release_chatkit_checkpoints(
+    checkpointer: Any, config: Mapping[str, Any], inputs: Mapping[str, Any]
+) -> None:
+    """Drop checkpoint history the next turn does not need.
+
+    A conversation keeps only its latest checkpoint, which carries the state
+    and any pending interrupt into the next turn. A run without a conversation
+    thread runs on its execution ID and is never resumed, so it keeps nothing.
+    """
+    configurable = config.get("configurable")
+    thread_id = (
+        configurable.get("thread_id") if isinstance(configurable, Mapping) else None
+    )
+    if not isinstance(thread_id, str) or not thread_id:
+        return
+    if _conversation_thread_id(inputs) is None:
+        await discard_run_checkpoints(checkpointer, thread_id)
+    else:
+        await compact_thread_checkpoints(checkpointer, thread_id)
 
 
 def _with_chatkit_model(

@@ -5,7 +5,14 @@ import asyncio
 import json
 import logging
 import warnings
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
 from uuid import UUID
@@ -44,6 +51,7 @@ from dynaconf import Dynaconf
 from langchain_core.messages import ToolMessage
 from pydantic import TypeAdapter, ValidationError
 from orcheo.config import get_settings
+from orcheo.persistence import delete_thread_checkpoints
 from orcheo.tracing.model_metadata import NAMESPACE_METADATA_KEY
 from orcheo.vault import BaseCredentialVault
 from orcheo_backend.app.chatkit.context import ChatKitRequestContext
@@ -1365,6 +1373,11 @@ def _resolve_chatkit_pool_settings(settings: Any) -> tuple[int, int, float, floa
     )
 
 
+async def _delete_chatkit_thread_checkpoints(thread_ids: Sequence[str]) -> None:
+    """Delete the LangGraph checkpoints of ChatKit threads that were removed."""
+    await delete_thread_checkpoints(get_settings(), thread_ids)
+
+
 def create_chatkit_server(
     repository: WorkflowRepository,
     vault_provider: Callable[[], BaseCredentialVault],
@@ -1389,6 +1402,7 @@ def create_chatkit_server(
             pool_max_size=int(pool_max_size),
             pool_timeout=float(pool_timeout),
             pool_max_idle=float(pool_max_idle),
+            on_threads_deleted=_delete_chatkit_thread_checkpoints,
         )
     return OrcheoChatKitServer(
         store=store,
