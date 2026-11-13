@@ -1,7 +1,16 @@
-"""Credential providers reserved for internal email workflow state."""
+"""Credential providers used by the email tools."""
+
+EMAIL_ACCOUNT_CREDENTIAL_PROVIDER = "orcheo-email"
 
 INTERNAL_EMAIL_CREDENTIAL_PROVIDERS = frozenset(
     {"orcheo-email-schedule", "orcheo-email-idempotency"}
 )
+EMAIL_CREDENTIAL_PROVIDERS = INTERNAL_EMAIL_CREDENTIAL_PROVIDERS | {
+    EMAIL_ACCOUNT_CREDENTIAL_PROVIDER
+}
 
-__all__ = ["INTERNAL_EMAIL_CREDENTIAL_PROVIDERS"]
+__all__ = [
+    "EMAIL_ACCOUNT_CREDENTIAL_PROVIDER",
+    "EMAIL_CREDENTIAL_PROVIDERS",
+    "INTERNAL_EMAIL_CREDENTIAL_PROVIDERS",
+]

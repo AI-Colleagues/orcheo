@@ -19,36 +19,42 @@ import html
 import imaplib
 import io
 import ipaddress
+import itertools
 import json
 import logging
 import re
 import smtplib
 import socket
 import ssl
-import threading
 import time
 import uuid
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime, timedelta
 from email.header import decode_header, make_header
-from email.message import EmailMessage
+from email.message import EmailMessage, Message
 from email.parser import BytesParser
 from email.utils import formataddr, formatdate, getaddresses, make_msgid, parseaddr
 from html.parser import HTMLParser
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from orcheo.models import CredentialAccessContext, CredentialScope
-from orcheo.vault import BaseCredentialVault, CredentialNotFoundError
+from orcheo.models import CredentialAccessContext, CredentialMetadata, CredentialScope
+from orcheo.vault import (
+    BaseCredentialVault,
+    CredentialNotFoundError,
+    WorkflowScopeError,
+)
 from orcheo.workspace import WorkspaceAuditEvent
+from orcheo_backend.app.credential_internal import EMAIL_ACCOUNT_CREDENTIAL_PROVIDER
 from orcheo_backend.app.mcp_server.email_errors import ServiceError
 
 
 MAX_READ_BATCH = 100
 MAX_EMAIL_SIZE = 4_000_000
 MAX_ATTACHMENT_SIZE = 500_000
-_SCHEDULE_LOCK = threading.Lock()
-_EMAIL_IDEMPOTENCY_LOCK = threading.RLock()
+EMAIL_RESULT_RETENTION = timedelta(days=1)
+EMAIL_FAILURE_RETENTION = timedelta(days=30)
+SCHEDULE_INTERRUPTED_AFTER = timedelta(minutes=15)
+EMAIL_CREDENTIAL_ROLE = "email-tools"
 # smtplib only negotiates BODY=8BITMIME for international envelope addresses.
 # Encode bodies safely even when ordinary addresses carry Unicode text.
 OUTBOUND_POLICY = email.policy.SMTP.clone(cte_type="7bit")
@@ -404,7 +410,7 @@ def _special_folders(client: imaplib.IMAP4, kind: str) -> list[str]:
     flagged: list[str] = []
     by_name = None
     for folder_row in folders or []:
-        if not folder_row:
+        if not isinstance(folder_row, bytes):
             continue
         match = re.search(
             rb'\((.*?)\)\s+(?:"([^"]*)"|NIL)\s+("(?:[^"\\]|\\.)*"|[^\s]+)$',
@@ -449,7 +455,7 @@ def _list_folders(client: imaplib.IMAP4) -> list[tuple[str, str]]:
     _, rows = client.list()
     folders = []
     for folder_row in rows or []:
-        if not folder_row:
+        if not isinstance(folder_row, bytes):
             continue
         match = re.search(
             rb'\((.*?)\)\s+(?:"(?:[^"]*)"|NIL)\s+("(?:[^"\\]|\\.)*"|[^\s]+)$',
@@ -538,7 +544,146 @@ def _decode_header(value: str | None) -> str:
         return value
 
 
-def _email_text(message: email.message.Message, *, html_body: bool = False) -> str:
+def _is_attachment(part: Message) -> bool:
+    disposition = part.get_content_disposition()
+    return disposition == "attachment" or (
+        disposition != "inline" and bool(part.get_filename())
+    )
+
+
+_IMAP_QUOTED_STRING = rb'"(?:[^"\\]|\\.)*"'
+_IMAP_VALUE = re.compile(_IMAP_QUOTED_STRING + rb'|[()]|[^\s()"]+')
+_FETCH_START = re.compile(rb"^\d+ \(")
+_HEADER_LITERAL = re.compile(rb"BODY\[HEADER\.FIELDS \([^)]*\)\] \{\d+\}$", re.I)
+_LITERAL_MARKER = re.compile(rb"\{\d+\}$")
+
+
+def _bodystructure_has_attachment(metadata: bytes) -> bool | None:
+    """Read disposition and filename parameters from IMAP MIME metadata."""
+    start = re.search(rb"\bBODYSTRUCTURE\s+(?=\()", metadata, re.I)
+    if not start:
+        return None
+    stack: list[list[Any]] = []
+    for match in _IMAP_VALUE.finditer(metadata, start.end()):
+        token = match.group()
+        if token == b"(":
+            child: list[Any] = []
+            if stack:
+                stack[-1].append(child)
+            stack.append(child)
+            if len(stack) > 100:
+                return None
+        elif token == b")":
+            body = stack.pop()
+            if not stack:
+                return _mime_structure_has_attachment(body)
+        else:
+            stack[-1].append(token.strip(b'"').upper())
+    return None
+
+
+def _mime_structure_has_attachment(body: list[Any]) -> bool:
+    if not body:
+        return False
+    if isinstance(body[0], list):
+        children = list(itertools.takewhile(lambda part: isinstance(part, list), body))
+        params_index = len(children) + 1
+        disposition_index = params_index + 1
+    else:
+        media = tuple(body[:2])
+        children = (
+            body[8:9]
+            if media in {(b"MESSAGE", b"RFC822"), (b"MESSAGE", b"GLOBAL")}
+            else []
+        )
+        params_index = 2
+        # Single parts have seven base fields. Text adds a line count, and
+        # embedded messages add an envelope, body and line count before MD5.
+        disposition_index = 11 if children else 9 if body[0] == b"TEXT" else 8
+    disposition = next(iter(body[disposition_index:]), None)
+    if isinstance(disposition, list) and disposition:
+        if disposition[0] == b"ATTACHMENT":
+            return True
+    params = next(iter(body[params_index:]), None)
+    if (
+        not (isinstance(disposition, list) and disposition[0:1] == [b"INLINE"])
+        and isinstance(params, list)
+        and any(
+            name == b"NAME" or isinstance(name, bytes) and name.startswith(b"NAME*")
+            for name in params[::2]
+        )
+    ):
+        return True
+    return any(
+        _mime_structure_has_attachment(child)
+        for child in children
+        if isinstance(child, list)
+    )
+
+
+def _fetch_search_page(
+    client: imaplib.IMAP4, uids: Sequence[int]
+) -> dict[int, tuple[bytes, bytes]]:
+    """Fetch a page of headers and MIME structures, keyed by returned UID."""
+    kind, data = client.uid(
+        "fetch",
+        ",".join(map(str, uids)),
+        "(UID FLAGS RFC822.SIZE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS "
+        "(FROM TO CC SUBJECT DATE MESSAGE-ID)])",
+    )
+    if kind != "OK":
+        return {}
+    results: dict[int, tuple[bytes, bytes]] = {}
+    metadata = bytearray()
+    headers = None
+    for entry in [*data, b"0 ("]:
+        if entry is None:
+            continue
+        fragment = entry[0] if isinstance(entry, tuple) else entry
+        if _FETCH_START.match(fragment):
+            if headers is not None:
+                attributes = re.sub(_IMAP_QUOTED_STRING, b'""', metadata)
+                uid = re.search(rb"\bUID (\d+)", attributes, re.I)
+                if uid:
+                    results[int(uid.group(1))] = (bytes(metadata), headers)
+            metadata.clear()
+            headers = None
+        if isinstance(entry, tuple):
+            if _HEADER_LITERAL.search(fragment):
+                headers = entry[1]
+                literal = b'""'
+            else:
+                literal = (
+                    b'"' + entry[1].replace(b"\\", b"\\\\").replace(b'"', b'\\"') + b'"'
+                )
+            marker = _LITERAL_MARKER.search(fragment)
+            if marker:
+                fragment = fragment[: marker.start()] + literal
+        metadata.extend(fragment)
+    return results
+
+
+def _part_payload(part: Message) -> bytes:
+    payload = part.get_payload(decode=True)
+    return payload if isinstance(payload, bytes) else b""
+
+
+def _append_imap_message(
+    client: imaplib.IMAP4, folder: str, message: EmailMessage, flags: str
+) -> tuple[str, list[bytes | None]]:
+    # imaplib returns the status and response data, though typeshed says str.
+    return cast(
+        tuple[str, list[bytes | None]],
+        client.append(
+            _imap_raw_quote(folder),
+            flags,
+            imaplib.Time2Internaldate(time.time()),
+            message.as_bytes(policy=OUTBOUND_POLICY),
+        ),
+    )
+
+
+def _email_text(message: EmailMessage, *, html_body: bool = False) -> str:
     chunks: list[str] = []
     wanted = "html" if html_body else "plain"
     parts = message.walk() if message.is_multipart() else [message]
@@ -550,9 +695,9 @@ def _email_text(message: email.message.Message, *, html_body: bool = False) -> s
         if part.get_content_type() != f"text/{wanted}":
             continue
         try:
-            content = part.get_content()
+            content = cast(EmailMessage, part).get_content()
         except (LookupError, UnicodeDecodeError, email.errors.MessageError):
-            payload = part.get_payload(decode=True) or b""
+            payload = _part_payload(part)
             content = payload.decode(part.get_content_charset() or "utf-8", "replace")
         if isinstance(content, str):
             chunks.append(content)
@@ -659,7 +804,7 @@ def _calendar_parts(message: email.message.Message) -> list[dict[str, Any]]:
     for part in message.walk():
         if part.get_content_type() != "text/calendar":
             continue
-        payload = part.get_payload(decode=True) or b""
+        payload = _part_payload(part)
         text = payload.decode(part.get_content_charset() or "utf-8", "replace")
         invites.extend(parse_calendar(text))
     return invites
@@ -707,7 +852,7 @@ def _server_ips(host: str, port: int) -> list[str]:
         raise ServiceError(
             "email.connection_failed", "Mail server could not be reached.", 502
         ) from error
-    addresses = list(dict.fromkeys(answer[4][0] for answer in answers))
+    addresses = list(dict.fromkeys(str(answer[4][0]) for answer in answers))
     if not addresses or any(
         not ipaddress.ip_address(value).is_global for value in addresses
     ):
@@ -718,13 +863,13 @@ def _server_ips(host: str, port: int) -> list[str]:
 
 
 class _PinnedIMAP(imaplib.IMAP4):
-    def __init__(self, host: str, port: int, address: str, use_ssl: bool):
+    def __init__(self, host: str, port: int, address: str, use_ssl: bool) -> None:
         self._pinned_address = address
         self._use_ssl = use_ssl
         self.ssl_context = ssl.create_default_context()
         super().__init__(host=host, port=port, timeout=15)
 
-    def _create_socket(self, timeout: float | None):
+    def _create_socket(self, timeout: float | None) -> socket.socket:
         raw = socket.create_connection((self._pinned_address, self.port), timeout)
         if self._use_ssl:
             return self.ssl_context.wrap_socket(raw, server_hostname=self.host)
@@ -732,23 +877,23 @@ class _PinnedIMAP(imaplib.IMAP4):
 
 
 class _PinnedSMTP(smtplib.SMTP):
-    def __init__(self, host: str, port: int, address: str, use_ssl: bool):
+    def __init__(self, host: str, port: int, address: str, use_ssl: bool) -> None:
         self._pinned_address = address
         self._use_ssl = use_ssl
         self.context = ssl.create_default_context()
         super().__init__(host=host, port=port, timeout=15)
 
-    def _get_socket(self, host: str, port: int, timeout: float | None):
+    def _get_socket(self, host: str, port: int, timeout: float | None) -> socket.socket:
         raw = socket.create_connection((self._pinned_address, port), timeout)
         if self._use_ssl:
-            return self.context.wrap_socket(raw, server_hostname=self._host)
+            return self.context.wrap_socket(raw, server_hostname=host)
         return raw
 
 
 def _delivery_error(error: Exception) -> ServiceError:
     """Keep actionable SMTP status without exposing server-supplied mail data."""
     stage = "connection"
-    responses = []
+    responses: list[tuple[int, bytes | str]] = []
     if isinstance(error, smtplib.SMTPRecipientsRefused):
         stage = "recipients"
         responses = list(error.recipients.values())
@@ -793,8 +938,7 @@ def _delivery_error(error: Exception) -> ServiceError:
         )
         enhanced = re.match(r"\s*([245]\.\d{1,3}\.\d{1,3})(?:\s|$)", reply_text)
         enhanced_statuses.add(enhanced.group(1) if enhanced else None)
-    if len(enhanced_statuses) == 1 and None not in enhanced_statuses:
-        enhanced_status = enhanced_statuses.pop()
+    if len(enhanced_statuses) == 1 and (enhanced_status := enhanced_statuses.pop()):
         details["enhanced_status"] = enhanced_status
         codes.append(enhanced_status)
     if rejected:
@@ -824,7 +968,7 @@ def _delivery_error(error: Exception) -> ServiceError:
 class EmailAccounts:
     """Workspace-scoped IMAP/SMTP adapter backed by encrypted vault entries."""
 
-    ACCOUNT_PROVIDER = "orcheo-email"
+    ACCOUNT_PROVIDER = EMAIL_ACCOUNT_CREDENTIAL_PROVIDER
     SCHEDULE_PROVIDER = "orcheo-email-schedule"
     IDEMPOTENCY_PROVIDER = "orcheo-email-idempotency"
 
@@ -840,23 +984,25 @@ class EmailAccounts:
             raise ServiceError(
                 "email.workspace_unavailable", "The active workspace is invalid.", 503
             ) from error
-        self.context = CredentialAccessContext(workspace_id=workspace_uuid)
+        self.workspace_uuid = workspace_uuid
+        self.context = CredentialAccessContext(
+            workspace_id=workspace_uuid, roles=[EMAIL_CREDENTIAL_ROLE]
+        )
 
-    def _metadata(self, provider: str) -> list[Any]:
+    def _metadata(self, provider: str) -> list[CredentialMetadata]:
         return [
             item
             for item in self.vault.list_credentials(
                 context=self.context, workspace_id=self.workspace_id
             )
-            if item.workspace_id == self.workspace_id and item.provider == provider
+            if item.workspace_id == self.workspace_id
+            and item.provider == provider
+            and item.template_id is None
         ]
 
-    def _secret(self, metadata: Any) -> dict[str, Any]:
+    def _secret(self, metadata: CredentialMetadata) -> dict[str, Any]:
         try:
-            value = self.vault.reveal_secret(
-                credential_id=metadata.id, context=self.context
-            )
-            parsed = json.loads(value)
+            parsed = json.loads(metadata.reveal(cipher=self.vault.cipher))
             if not isinstance(parsed, dict):
                 raise ValueError("not an object")
             return parsed
@@ -868,7 +1014,9 @@ class EmailAccounts:
             ) from error
 
     @staticmethod
-    def _row_from(metadata: Any, config: dict[str, Any]) -> dict[str, Any]:
+    def _row_from(
+        metadata: CredentialMetadata, config: dict[str, Any]
+    ) -> dict[str, Any]:
         imap = config.get("imap") or {}
         smtp = config.get("smtp") or {}
         return {
@@ -955,7 +1103,10 @@ class EmailAccounts:
             },
         }
 
-    def _ensure_default(self, actor_id: str) -> None:
+    def get_account_settings(self, actor_id: str, account_id: str) -> dict[str, Any]:
+        return self._account_result(self._row(actor_id, account_id))
+
+    def _ensure_default(self) -> None:
         rows = sorted(
             self._all_rows(),
             key=lambda row: (not row["enabled"], row["created_at"], row["id"]),
@@ -997,6 +1148,11 @@ class EmailAccounts:
         ]
 
     def set_default(self, actor_id: str, account_id: str) -> dict[str, Any]:
+        with self.vault.credential_lock(f"email-accounts:{self.workspace_id}"):
+            self._set_default(actor_id, account_id)
+        return {"account_id": account_id, "is_default": True}
+
+    def _set_default(self, actor_id: str, account_id: str) -> None:
         target = self._row(actor_id, account_id)
         if not target["enabled"]:
             raise ServiceError(
@@ -1008,7 +1164,6 @@ class EmailAccounts:
             if bool(config.get("is_default")) != wanted:
                 config["is_default"] = wanted
                 self._write(row, config)
-        return {"account_id": account_id, "is_default": True}
 
     def prepare_account(
         self, actor_id: str, data: dict[str, Any]
@@ -1049,39 +1204,47 @@ class EmailAccounts:
         return current, config
 
     def save_account(self, actor_id: str, data: dict[str, Any]) -> dict[str, Any]:
-        """Store an email account directly in the vault for internal callers."""
-        current, config = self.prepare_account(actor_id, data)
-        if data.get("is_default"):
-            for row in self._all_rows():
-                if current is None or row["id"] != current["id"]:
-                    existing = row["_config"]
-                    if existing.get("is_default"):
-                        existing["is_default"] = False
-                        self._write(row, existing)
-        if current:
-            config["is_default"] = bool(data.get("is_default", current["is_default"]))
-            self._write(current, config)
-            result = self._row(actor_id, current["id"])
-        else:
-            metadata = self.vault.create_credential(
-                name=f"mailbox-{data['email_address'].lower()}",
-                provider=self.ACCOUNT_PROVIDER,
-                scopes=["email:imap", "email:smtp"],
-                secret=json.dumps(config, separators=(",", ":")),
-                actor=self.actor,
-                scope=CredentialScope.unrestricted(),
-                workspace_id=self.workspace_id,
-            )
-            result = self._row(actor_id, str(metadata.id))
-            if data.get("is_default"):
-                self.set_default(actor_id, str(metadata.id))
-        self._ensure_default(actor_id)
-        return self._account_result(result)
+        """Store mailbox settings and return the updated, non-secret settings."""
+        with self.vault.credential_lock(f"email-accounts:{self.workspace_id}"):
+            current, config = self.prepare_account(actor_id, data)
+            if config["is_default"] and not config["enabled"]:
+                raise ServiceError(
+                    "email.account_disabled",
+                    "Enable this account before using it.",
+                    409,
+                )
+            name = f"mailbox-{data['email_address'].lower()}"
+            secret = json.dumps(config, separators=(",", ":"))
+            if current:
+                metadata = self.vault.update_credential(
+                    credential_id=current["_credential"].id,
+                    actor=self.actor,
+                    name=name,
+                    secret=secret,
+                    context=self.context,
+                )
+            else:
+                metadata = self.vault.create_credential(
+                    name=name,
+                    provider=self.ACCOUNT_PROVIDER,
+                    scopes=["email:imap", "email:smtp"],
+                    secret=secret,
+                    actor=self.actor,
+                    scope=CredentialScope.for_roles(EMAIL_CREDENTIAL_ROLE),
+                    workspace_id=self.workspace_id,
+                )
+            account_id = str(metadata.id)
+            if config["is_default"]:
+                self._set_default(actor_id, account_id)
+            else:
+                self._ensure_default()
+            return self.get_account_settings(actor_id, account_id)
 
     def delete_account(self, actor_id: str, account_id: str) -> dict[str, Any]:
-        row = self._row(actor_id, account_id)
-        self.vault.delete_credential(row["_credential"].id, context=self.context)
-        self._ensure_default(actor_id)
+        with self.vault.credential_lock(f"email-accounts:{self.workspace_id}"):
+            row = self._row(actor_id, account_id)
+            self.vault.delete_credential(row["_credential"].id, context=self.context)
+            self._ensure_default()
         return {"account_id": account_id, "deleted": True}
 
     def _selected_account(
@@ -1094,11 +1257,11 @@ class EmailAccounts:
             rows.sort(
                 key=lambda row: (not row["is_default"], row["created_at"], row["id"])
             )
-            row = rows[0] if rows else None
-            if row is None:
+            if not rows:
                 raise ServiceError(
                     "email.account_required", "Add an email account first.", 409
                 )
+            row = rows[0]
         if not row["enabled"]:
             raise ServiceError(
                 "email.account_disabled", "This email account is disabled.", 409
@@ -1262,8 +1425,8 @@ class EmailAccounts:
                     except (OSError, imaplib.IMAP4.error):
                         pass
                 else:
-                    client = self._smtp(row)
-                    client.quit()
+                    smtp = self._smtp(row)
+                    smtp.quit()
                 status = "connected"
                 message = "Connection successful."
             except ServiceError as error:
@@ -1282,10 +1445,10 @@ class EmailAccounts:
     ) -> tuple[dict[str, Any], str, int, int]:
         try:
             parts = json.loads(_unb64(message_id))
+            if not isinstance(parts, list) or len(parts) != 4:
+                raise ValueError
             account_id, folder, uidvalidity, uid = parts
-            if len(parts) != 4 or not all(
-                isinstance(item, str) for item in (account_id, folder)
-            ):
+            if not isinstance(account_id, str) or not isinstance(folder, str):
                 raise ValueError
             uidvalidity, uid = int(uidvalidity), int(uid)
             if uidvalidity < 1 or uid < 1:
@@ -1391,7 +1554,7 @@ class EmailAccounts:
                             400,
                         )
                     criteria.extend([criterion, _imap_raw_quote(value)])
-            kind, data = client.uid("search", None, *criteria)
+            kind, data = client.uid("search", *criteria)
             if kind != "OK":
                 raise ServiceError(
                     "email.search_failed",
@@ -1422,65 +1585,58 @@ class EmailAccounts:
                         409,
                     )
                 uids = [uid for uid in uids if uid < before_uid]
-            items = []
+            items: list[dict[str, Any]] = []
             skipped: list[int] = []
             examined = 0
-            page: list[int] = []
-            for uid in uids:
-                if len(items) >= args["limit"]:
+            limit = args["limit"]
+            attachment_filter = args.get("has_attachments")
+            batch_size = limit if attachment_filter is None else 50
+            for batch in itertools.batched(uids, batch_size):
+                fetched = _fetch_search_page(client, batch)
+                for uid in batch:
+                    examined += 1
+                    if uid not in fetched:
+                        skipped.append(uid)
+                        continue
+                    metadata, raw_headers = fetched[uid]
+                    has_attachments = _bodystructure_has_attachment(metadata)
+                    if attachment_filter is not None and has_attachments is None:
+                        skipped.append(uid)
+                        continue
+                    if (
+                        attachment_filter is not None
+                        and has_attachments != attachment_filter
+                    ):
+                        continue
+                    parsed = BytesParser(policy=email.policy.default).parsebytes(
+                        raw_headers
+                    )
+                    opaque_id = _b64(
+                        json.dumps(
+                            [row["id"], folder, uidvalidity, uid], separators=(",", ":")
+                        ).encode()
+                    )
+                    attributes = re.sub(_IMAP_QUOTED_STRING, b'""', metadata)
+                    flags_match = re.search(rb"FLAGS\s+\(([^)]*)\)", attributes, re.I)
+                    flags = flags_match.group(1) if flags_match else b""
+                    size = re.search(rb"RFC822\.SIZE\s+(\d+)", attributes, re.I)
+                    items.append(
+                        {
+                            **_summary(parsed, opaque_id, flags),
+                            "flagged": b"\\Flagged" in flags,
+                            "answered": b"\\Answered" in flags,
+                            "has_attachments": has_attachments,
+                            "size": int(size.group(1)) if size else None,
+                        }
+                    )
+                    if len(items) == limit:
+                        break
+                if len(items) == limit:
                     break
-                examined += 1
-                page.append(uid)
-                kind, fetched = client.uid(
-                    "fetch",
-                    str(uid),
-                    "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS "
-                    "(FROM TO CC SUBJECT DATE MESSAGE-ID CONTENT-TYPE)])",
-                )
-                if kind != "OK":
-                    skipped.append(uid)
-                    continue
-                raw_headers = next(
-                    (
-                        part[1]
-                        for part in fetched or []
-                        if isinstance(part, tuple) and isinstance(part[1], bytes)
-                    ),
-                    b"",
-                )
-                meta = next(
-                    (part[0] for part in fetched or [] if isinstance(part, tuple)), b""
-                )
-                parsed = BytesParser(policy=email.policy.default).parsebytes(
-                    raw_headers
-                )
-                # A mixed multipart is how mail carries attachments; the
-                # header says so without downloading the body.
-                has_attachments = parsed.get_content_type() == "multipart/mixed"
-                if (
-                    args.get("has_attachments") is not None
-                    and has_attachments != args["has_attachments"]
-                ):
-                    continue
-                opaque_id = _b64(
-                    json.dumps(
-                        [row["id"], folder, uidvalidity, uid], separators=(",", ":")
-                    ).encode()
-                )
-                flags_match = re.search(rb"FLAGS\s+\(([^)]*)\)", meta, re.I)
-                flags = flags_match.group(1) if flags_match else b""
-                size = re.search(rb"RFC822\.SIZE\s+(\d+)", meta, re.I)
-                items.append(
-                    {
-                        **_summary(parsed, opaque_id, flags),
-                        "flagged": b"\\Flagged" in flags,
-                        "answered": b"\\Answered" in flags,
-                        "has_attachments": has_attachments,
-                        "size": int(size.group(1)) if size else None,
-                    }
-                )
             next_cursor = (
-                f"{uidvalidity}.{page[-1]}" if page and len(uids) > examined else None
+                f"{uidvalidity}.{uids[examined - 1]}"
+                if 0 < examined < len(uids)
+                else None
             )
             result = {
                 "account_id": row["id"],
@@ -1519,8 +1675,8 @@ class EmailAccounts:
         attachments = []
         for index, part in enumerate(parsed.walk()):
             filename = part.get_filename()
-            if part.get_content_disposition() == "attachment" or filename:
-                payload = part.get_payload(decode=True) or b""
+            if _is_attachment(part):
+                payload = _part_payload(part)
                 attachment_id = _b64(
                     json.dumps(
                         ["attachment", message_id, index], separators=(",", ":")
@@ -1586,7 +1742,7 @@ class EmailAccounts:
                 "email.attachment_not_found", "Attachment not found.", 404
             )
         part = parts[index]
-        payload = part.get_payload(decode=True) or b""
+        payload = _part_payload(part)
         if len(payload) > MAX_ATTACHMENT_SIZE:
             raise ServiceError(
                 "email.attachment_too_large",
@@ -1843,7 +1999,7 @@ class EmailAccounts:
         row: dict[str, Any],
         args: dict[str, Any],
         *,
-        extra_attachments: list[tuple[bytes, str, str, str]] = (),
+        extra_attachments: Sequence[tuple[bytes, str, str, str]] = (),
     ) -> EmailMessage:
         """Build the message, signed when the account has a signature."""
         message = EmailMessage(policy=OUTBOUND_POLICY)
@@ -1946,12 +2102,7 @@ class EmailAccounts:
             folder = _special_folder(client, alias)
             if not folder:
                 return False
-            kind, _ = client.append(
-                _imap_raw_quote(folder),
-                flags.decode(),
-                imaplib.Time2Internaldate(time.time()),
-                message.as_bytes(policy=OUTBOUND_POLICY),
-            )
+            kind, _ = _append_imap_message(client, folder, message, flags.decode())
             return kind == "OK"
         except (OSError, imaplib.IMAP4.error):
             return False
@@ -1966,8 +2117,8 @@ class EmailAccounts:
         actor_id: str,
         args: dict[str, Any],
         *,
-        extra_bcc: list[str] = (),
-        extra_attachments: list[tuple[bytes, str, str, str]] = (),
+        extra_bcc: Sequence[str] = (),
+        extra_attachments: Sequence[tuple[bytes, str, str, str]] = (),
     ) -> dict[str, Any]:
         row = self._selected_account(actor_id, args.get("account_id"))
         message = self.compose(row, args, extra_attachments=extra_attachments)
@@ -1983,24 +2134,6 @@ class EmailAccounts:
             "subject": args["subject"],
             "message_id": message.get("Message-ID"),
         }
-
-    @contextmanager
-    def _idempotency_lock(self, key: str) -> Iterator[None]:
-        """Serialize retries for one email idempotency key across workers."""
-        pool = getattr(self.vault, "_pool", None)
-        if pool is None:
-            with _EMAIL_IDEMPOTENCY_LOCK:
-                yield
-            return
-        lock_id = int.from_bytes(
-            hashlib.sha256(key.encode()).digest()[:8], "big", signed=True
-        )
-        with pool.connection() as connection:
-            connection.execute("SELECT pg_advisory_lock(%s)", (lock_id,))
-            try:
-                yield
-            finally:
-                connection.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
 
     def run_idempotently(
         self,
@@ -2025,7 +2158,7 @@ class EmailAccounts:
             ).encode()
         ).hexdigest()
 
-        with self._idempotency_lock(scope_key):
+        with self.vault.credential_lock(f"{self.workspace_id}:{name}"):
             existing = next(
                 (
                     item
@@ -2037,9 +2170,7 @@ class EmailAccounts:
             now = datetime.now(UTC)
             if existing is not None:
                 record = self._secret(existing)
-                if record.get(
-                    "status"
-                ) != "processing" and existing.updated_at < now - timedelta(days=1):
+                if self._idempotency_expired(existing, record, now):
                     self.vault.delete_credential(existing.id, context=self.context)
                     existing = None
             if existing is not None:
@@ -2085,45 +2216,42 @@ class EmailAccounts:
                     separators=(",", ":"),
                 ),
                 actor=self.actor,
-                scope=CredentialScope.unrestricted(),
+                scope=CredentialScope.for_roles(EMAIL_CREDENTIAL_ROLE),
                 workspace_id=self.workspace_id,
             )
-            try:
-                response = operation(data)
-            except ServiceError as error:
-                self.vault.update_credential(
-                    credential_id=metadata.id,
-                    actor=self.actor,
-                    secret=json.dumps(
-                        {
-                            "status": "failed",
-                            "request_hash": request_hash,
-                            "code": error.code,
-                            "message": error.message,
-                            "status_code": error.status_code,
-                            "details": error.details,
-                        },
-                        separators=(",", ":"),
-                        default=str,
-                    ),
-                    context=self.context,
-                )
-                raise
-            self.vault.update_credential(
-                credential_id=metadata.id,
-                actor=self.actor,
-                secret=json.dumps(
-                    {
-                        "status": "complete",
-                        "request_hash": request_hash,
-                        "response": response,
-                    },
-                    separators=(",", ":"),
-                    default=str,
-                ),
-                context=self.context,
+        # Commit the claim before contacting SMTP. If the worker stops, the
+        # persisted claim prevents a retry from delivering a duplicate.
+        try:
+            response = operation(data)
+        except ServiceError as error:
+            self._write_email_record(
+                metadata,
+                {
+                    "status": "failed",
+                    "request_hash": request_hash,
+                    "code": error.code,
+                    "message": error.message,
+                    "status_code": error.status_code,
+                    "details": error.details,
+                },
             )
-            return response
+            raise
+        self._write_email_record(
+            metadata,
+            {"status": "complete", "request_hash": request_hash, "response": response},
+        )
+        return response
+
+    @staticmethod
+    def _idempotency_expired(
+        metadata: CredentialMetadata, record: dict[str, Any], now: datetime
+    ) -> bool:
+        retention = (
+            EMAIL_FAILURE_RETENTION
+            if record.get("status") == "processing"
+            else EMAIL_RESULT_RETENTION
+        )
+        return metadata.updated_at < now - retention
 
     # ------------------------------------------------------------------
     # Mail client operations beyond search, read and send
@@ -2304,11 +2432,11 @@ class EmailAccounts:
         if args.get("include_attachments", True):
             for part in original.walk():
                 filename = part.get_filename()
-                if part.get_content_disposition() == "attachment" or filename:
+                if _is_attachment(part):
                     maintype, _, subtype = part.get_content_type().partition("/")
                     extra.append(
                         (
-                            part.get_payload(decode=True) or b"",
+                            _part_payload(part),
                             maintype or "application",
                             subtype or "octet-stream",
                             _decode_header(filename) or "attachment",
@@ -2337,7 +2465,7 @@ class EmailAccounts:
         actor_id: str,
         args: dict[str, Any],
         *,
-        extra_attachments: list[tuple[bytes, str, str, str]] = (),
+        extra_attachments: Sequence[tuple[bytes, str, str, str]] = (),
     ) -> dict[str, Any]:
         """Keep a message in Drafts, where the user can edit and send it."""
         row = self._selected_account(actor_id, args.get("account_id"))
@@ -2354,11 +2482,8 @@ class EmailAccounts:
                     "This mailbox has no Drafts folder.",
                     409,
                 )
-            kind, data = client.append(
-                _imap_raw_quote(folder),
-                "(\\Draft \\Seen)",
-                imaplib.Time2Internaldate(time.time()),
-                message.as_bytes(policy=OUTBOUND_POLICY),
+            kind, data = _append_imap_message(
+                client, folder, message, "(\\Draft \\Seen)"
             )
             if kind != "OK":
                 raise ServiceError(
@@ -2411,19 +2536,12 @@ class EmailAccounts:
             raise ServiceError(
                 "email.no_recipients", "This draft has no recipients yet.", 409
             )
-        outgoing = EmailMessage(policy=OUTBOUND_POLICY)
-        for key, value in draft.items():
-            if key.lower() not in {"bcc", "date", "message-id"}:
-                outgoing[key] = value
-        outgoing["Date"] = formatdate(localtime=True)
-        outgoing["Message-ID"] = make_msgid(
-            domain=row["email_address"].rpartition("@")[2]
-        )
-        if draft.is_multipart():
-            outgoing.set_payload(draft.get_payload())
-        else:
-            outgoing.set_payload(draft.get_payload(), draft.get_content_charset())
-        result = self.deliver(row, outgoing, recipients)
+        del draft["Bcc"]
+        del draft["Date"]
+        del draft["Message-ID"]
+        draft["Date"] = formatdate(localtime=True)
+        draft["Message-ID"] = make_msgid(domain=row["email_address"].rpartition("@")[2])
+        result = self.deliver(row, draft, recipients)
 
         def discard(client: imaplib.IMAP4) -> bool:
             kind, _ = client.select(_imap_quote(folder), readonly=False)
@@ -2479,7 +2597,7 @@ class EmailAccounts:
                 for header_id in list(ids)[:10]:
                     quoted = _imap_raw_quote(header_id.strip())
                     for field in ("MESSAGE-ID", "REFERENCES", "IN-REPLY-TO"):
-                        kind, data = client.uid("search", None, "HEADER", field, quoted)
+                        kind, data = client.uid("search", "HEADER", field, quoted)
                         if kind == "OK" and data and data[0]:
                             uids.update(int(item) for item in data[0].split())
                 for found_uid in sorted(uids)[-limit:]:
@@ -2551,7 +2669,7 @@ class EmailAccounts:
                 "email.attachment_not_found", "Attachment not found.", 404
             )
         part = parts[index]
-        payload = part.get_payload(decode=True) or b""
+        payload = _part_payload(part)
         content_type = part.get_content_type()
         if content_type == "application/pdf":
             text = _pdf_text(payload)
@@ -2689,7 +2807,7 @@ class EmailAccounts:
                     continue
                 # Match locally over the latest headers: server-side address
                 # search differs between servers and misses display names.
-                kind, data = client.uid("search", None, "ALL")
+                kind, data = client.uid("search", "ALL")
                 if kind != "OK" or not data or not data[0]:
                     continue
                 recent = sorted(int(item) for item in data[0].split())[-200:]
@@ -2737,21 +2855,19 @@ class EmailAccounts:
 
     # Scheduled sending ------------------------------------------------
 
-    def _schedule_metadata(self) -> list[Any]:
-        return self._metadata(self.SCHEDULE_PROVIDER)
-
     def schedule(
         self,
         actor_id: str,
         args: dict[str, Any],
         send_at: str,
         *,
-        extra_bcc: list[str] = (),
-        extra_attachments: list[tuple[bytes, str, str, str]] = (),
+        extra_bcc: Sequence[str] = (),
+        extra_attachments: Sequence[tuple[bytes, str, str, str]] = (),
     ) -> dict[str, Any]:
         row = self._selected_account(actor_id, args.get("account_id"))
         payload = {
             "actor_id": actor_id,
+            "account_id": row["id"],
             "args": {**args, "account_id": row["id"], "send_at": None},
             "extra_bcc": list(extra_bcc),
             "extra_attachments": [
@@ -2770,7 +2886,7 @@ class EmailAccounts:
             scopes=["email:schedule"],
             secret=json.dumps(payload, separators=(",", ":")),
             actor=self.actor,
-            scope=CredentialScope.unrestricted(),
+            scope=CredentialScope.for_roles(EMAIL_CREDENTIAL_ROLE),
             workspace_id=self.workspace_id,
         )
         return {
@@ -2783,142 +2899,212 @@ class EmailAccounts:
     def list_scheduled(self, actor_id: str) -> list[dict[str, Any]]:
         del actor_id
         results = []
-        for metadata in self._schedule_metadata():
+        for metadata in self._metadata(self.SCHEDULE_PROVIDER):
             schedule = self._secret(metadata)
-            if schedule.get("status") in {"scheduled", "sending", "failed"}:
-                results.append(
-                    {
-                        "scheduled_id": str(metadata.id),
-                        "account_id": schedule.get("args", {}).get("account_id"),
-                        "subject": schedule.get("subject", ""),
-                        "send_at": schedule.get("send_at"),
-                        "status": schedule.get("status"),
-                        "last_error": schedule.get("last_error"),
-                    }
-                )
+            if schedule.get("status") in {"scheduled", "sending", "failed", "partial"}:
+                result = {
+                    "scheduled_id": str(metadata.id),
+                    "account_id": schedule.get("account_id")
+                    or (schedule.get("args") or {}).get("account_id"),
+                    "subject": schedule.get("subject", ""),
+                    "send_at": schedule.get("send_at"),
+                    "status": schedule.get("status"),
+                    "last_error": schedule.get("last_error"),
+                }
+                if schedule.get("status") == "partial":
+                    result.update(schedule["delivery"])
+                results.append(result)
         return sorted(results, key=lambda item: item.get("send_at") or "")
 
-    def cleanup_idempotency(self) -> int:
-        """Delete completed retry records after their one-day replay window."""
-        cutoff = datetime.now(UTC) - timedelta(days=1)
-        expired = [
-            item
-            for item in self._metadata(self.IDEMPOTENCY_PROVIDER)
-            if item.updated_at < cutoff
-            and self._secret(item).get("status") != "processing"
-        ]
-        for item in expired:
-            self.vault.delete_credential(item.id, context=self.context)
-        return len(expired)
+    def cleanup_idempotency(self) -> None:
+        """Remove expired retry records, including abandoned claims."""
+        now = datetime.now(UTC)
+        for metadata in self._metadata(self.IDEMPOTENCY_PROVIDER):
+            if metadata.updated_at >= now - EMAIL_RESULT_RETENTION:
+                continue
+            with self.vault.credential_lock(f"{self.workspace_id}:{metadata.name}"):
+                current = self._email_record(metadata.id, self.IDEMPOTENCY_PROVIDER)
+                if current and self._idempotency_expired(
+                    current, self._secret(current), now
+                ):
+                    self.vault.delete_credential(current.id, context=self.context)
 
-    def _write_schedule(self, metadata: Any, schedule: dict[str, Any]) -> None:
+    def _email_record(
+        self, credential_id: uuid.UUID, provider: str
+    ) -> CredentialMetadata | None:
+        try:
+            metadata = self.vault.get_credential_metadata(
+                credential_id, context=self.context
+            )
+        except (CredentialNotFoundError, WorkflowScopeError):
+            return None
+        if (
+            metadata.provider == provider
+            and metadata.workspace_id == self.workspace_id
+            and metadata.template_id is None
+        ):
+            return metadata
+        return None
+
+    def _write_email_record(
+        self, metadata: CredentialMetadata, record: dict[str, Any]
+    ) -> None:
         self.vault.update_credential(
             credential_id=metadata.id,
             actor=self.actor,
-            secret=json.dumps(schedule, separators=(",", ":")),
+            secret=json.dumps(record, separators=(",", ":"), default=str),
             context=self.context,
         )
 
     def cancel_scheduled(self, actor_id: str, scheduled_id: str) -> dict[str, Any]:
         del actor_id
-        metadata = next(
-            (
-                item
-                for item in self._schedule_metadata()
-                if str(item.id) == scheduled_id
-            ),
-            None,
+        try:
+            credential_id = uuid.UUID(scheduled_id)
+        except ValueError:
+            credential_id = None
+        if credential_id is not None:
+            with self.vault.credential_lock(f"email-schedule:{credential_id}"):
+                metadata = self._email_record(credential_id, self.SCHEDULE_PROVIDER)
+                if metadata and self._secret(metadata).get("status") == "scheduled":
+                    self.vault.delete_credential(metadata.id, context=self.context)
+                    return {"scheduled_id": scheduled_id, "status": "cancelled"}
+        raise ServiceError(
+            "email.scheduled_not_found",
+            "No scheduled email with that ID is still waiting to send.",
+            404,
         )
-        if metadata is None:
-            raise ServiceError(
-                "email.scheduled_not_found",
-                "No scheduled email with that ID is still waiting to send.",
-                404,
-            )
-        schedule = self._secret(metadata)
-        if schedule.get("status") != "scheduled":
-            raise ServiceError(
-                "email.scheduled_not_found",
-                "No scheduled email with that ID is still waiting to send.",
-                404,
-            )
-        schedule["status"] = "cancelled"
-        schedule["payload"] = None
-        self._write_schedule(metadata, schedule)
-        return {"scheduled_id": scheduled_id, "status": "cancelled"}
+
+    def _claim_schedule(self, credential_id: uuid.UUID) -> dict[str, Any] | None:
+        with self.vault.credential_lock(f"email-schedule:{credential_id}"):
+            metadata = self._email_record(credential_id, self.SCHEDULE_PROVIDER)
+            if metadata is None:
+                return None
+            schedule = self._secret(metadata)
+            if schedule.get("status") != "scheduled":
+                return None
+            schedule["status"] = "sending"
+            self._write_email_record(metadata, schedule)
+            return schedule
+
+    def _recover_schedule(self, credential_id: uuid.UUID, now: datetime) -> bool:
+        with self.vault.credential_lock(f"email-schedule:{credential_id}"):
+            metadata = self._email_record(credential_id, self.SCHEDULE_PROVIDER)
+            if metadata is None:
+                return False
+            schedule = self._secret(metadata)
+            status = schedule.get("status")
+            age = now - metadata.updated_at
+            if (
+                status in {"cancelled", "sent"}
+                or status in {"partial", "failed"}
+                and age >= EMAIL_FAILURE_RETENTION
+            ):
+                self.vault.delete_credential(metadata.id, context=self.context)
+            elif status == "sending" and age >= SCHEDULE_INTERRUPTED_AFTER:
+                schedule.update(
+                    status="failed",
+                    last_error="Interrupted while sending; check Sent before retrying.",
+                )
+                self._write_email_record(metadata, schedule)
+                return True
+            return False
+
+    def _finish_schedule(
+        self,
+        credential_id: uuid.UUID,
+        outcome: dict[str, Any] | None,
+        error: str | None,
+    ) -> None:
+        with self.vault.credential_lock(f"email-schedule:{credential_id}"):
+            metadata = self._email_record(credential_id, self.SCHEDULE_PROVIDER)
+            if metadata is None:
+                return
+            if outcome is not None and outcome["sent"]:
+                self.vault.delete_credential(metadata.id, context=self.context)
+                return
+            schedule = self._secret(metadata)
+            schedule["account_id"] = (schedule.get("args") or {}).get("account_id")
+            if outcome is not None:
+                schedule.update(
+                    status="partial",
+                    last_error="SMTP refused some recipients. Check the delivery details.",
+                    delivery={
+                        field: outcome[field]
+                        for field in (
+                            "delivery_status",
+                            "refused_recipients",
+                            "message_id",
+                            "saved_to_sent",
+                        )
+                    },
+                    args=None,
+                    extra_bcc=[],
+                    extra_attachments=[],
+                )
+            else:
+                schedule.update(status="failed", last_error=error)
+            self._write_email_record(metadata, schedule)
 
     def process_scheduled(self, limit: int = 20) -> dict[str, int]:
         """Send due workspace emails from their encrypted vault records."""
-        if not _SCHEDULE_LOCK.acquire(blocking=False):
-            return {"sent": 0, "failed": 0}
         counts = {"sent": 0, "failed": 0}
-        try:
-            now = datetime.now(UTC)
-            due = []
-            for metadata in self._schedule_metadata():
-                schedule = self._secret(metadata)
-                if schedule.get("status") == "sending":
-                    if metadata.updated_at < now - timedelta(minutes=15):
-                        schedule.update(
-                            status="failed",
-                            last_error="Interrupted while sending; not retried to avoid a duplicate.",
-                        )
-                        self._write_schedule(metadata, schedule)
-                    continue
-                if schedule.get("status") != "scheduled":
-                    continue
-                try:
-                    send_at = datetime.fromisoformat(
-                        str(schedule["send_at"]).replace("Z", "+00:00")
-                    )
-                except (KeyError, TypeError, ValueError):
-                    schedule.update(
-                        status="failed", last_error="Scheduled time is invalid."
-                    )
-                    self._write_schedule(metadata, schedule)
+        now = datetime.now(UTC)
+        due: list[tuple[datetime, uuid.UUID]] = []
+        for metadata in self._metadata(self.SCHEDULE_PROVIDER):
+            schedule = self._secret(metadata)
+            status = schedule.get("status")
+            if status != "scheduled":
+                age = now - metadata.updated_at
+                if (
+                    status in {"cancelled", "sent"}
+                    or status == "sending"
+                    and age >= SCHEDULE_INTERRUPTED_AFTER
+                    or status in {"partial", "failed"}
+                    and age >= EMAIL_FAILURE_RETENTION
+                ) and self._recover_schedule(metadata.id, now):
                     counts["failed"] += 1
-                    continue
+                continue
+            try:
+                send_at = datetime.fromisoformat(schedule["send_at"])
                 if send_at.utcoffset() is None:
-                    continue
-                if send_at.astimezone(UTC) <= now:
-                    due.append((metadata, schedule))
-            for metadata, schedule in sorted(due, key=lambda item: item[1]["send_at"])[
-                :limit
-            ]:
-                schedule["status"] = "sending"
-                self._write_schedule(metadata, schedule)
-                try:
-                    self.send(
-                        schedule["actor_id"],
-                        schedule["args"],
-                        extra_bcc=schedule.get("extra_bcc") or [],
-                        extra_attachments=[
-                            (base64.b64decode(content), maintype, subtype, filename)
-                            for content, maintype, subtype, filename in schedule.get(
-                                "extra_attachments"
-                            )
-                            or []
-                        ],
+                    raise ValueError("A timezone is required")
+            except (KeyError, TypeError, ValueError):
+                if self._claim_schedule(metadata.id) is not None:
+                    self._finish_schedule(
+                        metadata.id, None, "Scheduled time is invalid."
                     )
-                    schedule.update(
-                        status="sent",
-                        last_error=None,
-                        args=None,
-                        extra_bcc=[],
-                        extra_attachments=[],
-                    )
-                    counts["sent"] += 1
-                except Exception as error:
-                    safe_message = (
-                        error.message
-                        if isinstance(error, ServiceError)
-                        else f"Scheduled email failed ({type(error).__name__})."
-                    )
-                    schedule.update(status="failed", last_error=safe_message)
                     counts["failed"] += 1
-                self._write_schedule(metadata, schedule)
-        finally:
-            _SCHEDULE_LOCK.release()
+                continue
+            if send_at <= now:
+                due.append((send_at, metadata.id))
+        for _, credential_id in sorted(due)[:limit]:
+            claimed = self._claim_schedule(credential_id)
+            if claimed is None:
+                continue
+            try:
+                outcome = self.send(
+                    claimed["actor_id"],
+                    claimed["args"],
+                    extra_bcc=claimed.get("extra_bcc") or [],
+                    extra_attachments=[
+                        (base64.b64decode(content), maintype, subtype, filename)
+                        for content, maintype, subtype, filename in claimed.get(
+                            "extra_attachments"
+                        )
+                        or []
+                    ],
+                )
+            except Exception as error:
+                message = (
+                    error.message
+                    if isinstance(error, ServiceError)
+                    else f"Scheduled email failed ({type(error).__name__})."
+                )
+                self._finish_schedule(credential_id, None, message)
+                counts["failed"] += 1
+            else:
+                self._finish_schedule(credential_id, outcome, None)
+                counts["sent" if outcome["sent"] else "failed"] += 1
         return counts
 
 

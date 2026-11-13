@@ -160,7 +160,7 @@ async def test_workspace_quota_helpers_raise_when_limits_are_hit() -> None:
     class CredentialVault:
         def list_all_credentials(self, *, workspace_id=None):
             del workspace_id
-            return [object()]
+            return [SimpleNamespace(provider="api")]
 
     with pytest.raises(WorkspaceQuotaExceededError) as exc_info:
         await governance_mod.ensure_workspace_credential_quota(

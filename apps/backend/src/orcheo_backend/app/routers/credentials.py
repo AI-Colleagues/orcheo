@@ -15,9 +15,7 @@ from orcheo_backend.app.authentication import (
     get_request_context,
     is_oauth_client_context,
 )
-from orcheo_backend.app.credential_internal import (
-    INTERNAL_EMAIL_CREDENTIAL_PROVIDERS,
-)
+from orcheo_backend.app.credential_internal import EMAIL_CREDENTIAL_PROVIDERS
 from orcheo_backend.app.credential_utils import (
     credential_to_response,
     scope_from_access,
@@ -47,6 +45,14 @@ from orcheo_backend.app.workspace_governance import ensure_workspace_credential_
 router = APIRouter()
 
 
+def _require_generic_provider(provider: str | None) -> None:
+    if provider is not None and provider.strip() in EMAIL_CREDENTIAL_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Use the email tools to manage email credentials.",
+        )
+
+
 @router.get(
     "/credentials",
     response_model=list[CredentialVaultEntryResponse],
@@ -74,7 +80,7 @@ async def list_credentials(
     return [
         credential_to_response(metadata)
         for metadata in credentials
-        if metadata.provider not in INTERNAL_EMAIL_CREDENTIAL_PROVIDERS
+        if metadata.provider not in EMAIL_CREDENTIAL_PROVIDERS
     ]
 
 
@@ -90,6 +96,7 @@ async def create_credential(
     workspace: WorkspaceContextDep,
 ) -> CredentialVaultEntryResponse:
     """Persist a new credential in the vault."""
+    _require_generic_provider(request.provider)
     workflow_id = await resolve_optional_workflow_ref_id(
         repository, request.workflow_id, workspace_id=str(workspace.workspace_id)
     )
@@ -156,13 +163,15 @@ async def reveal_credential_secret(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
-        secret = await run_in_threadpool(
-            lambda: vault.reveal_secret(credential_id=credential_id, context=context)
+        metadata = await run_in_threadpool(
+            vault.get_credential_metadata, credential_id, context=context
         )
     except CredentialNotFoundError as exc:
         raise_not_found("Credential not found", exc)
     except WorkflowScopeError as exc:
         raise_scope_error(exc)
+    _require_generic_provider(metadata.provider)
+    secret = await run_in_threadpool(metadata.reveal, cipher=vault.cipher)
     from orcheo.workspace import WorkspaceAuditEvent
     from orcheo_backend.app.workspace import get_workspace_repository
 
@@ -197,6 +206,7 @@ async def update_credential(
     workflow_id: WorkflowRefQuery = None,
 ) -> CredentialVaultEntryResponse:
     """Update credential metadata and optionally rotate the secret."""
+    _require_generic_provider(request.provider)
     query_workflow_id = await resolve_optional_workflow_ref_id(
         repository, workflow_id, workspace_id=str(workspace.workspace_id)
     )
@@ -218,6 +228,10 @@ async def update_credential(
         else None
     )
     try:
+        current = await run_in_threadpool(
+            vault.get_credential_metadata, credential_id, context=context
+        )
+        _require_generic_provider(current.provider)
         metadata = await run_in_threadpool(
             lambda: vault.update_credential(
                 credential_id=credential_id,
@@ -268,6 +282,10 @@ async def delete_credential(
         resolved_workflow_id, workspace_id=str(workspace.workspace_id)
     )
     try:
+        current = await run_in_threadpool(
+            vault.get_credential_metadata, credential_id, context=context
+        )
+        _require_generic_provider(current.provider)
         await run_in_threadpool(
             lambda: vault.delete_credential(credential_id, context=context)
         )

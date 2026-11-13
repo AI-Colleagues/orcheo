@@ -83,7 +83,6 @@ WORKER_ACTOR = "worker"
 @celery_app.task(name="orcheo_backend.worker.tasks.dispatch_scheduled_emails")
 def dispatch_scheduled_emails() -> dict[str, int]:
     """Send due MCP emails stored as encrypted workspace vault entries."""
-    from contextlib import nullcontext
     from orcheo_backend.app.dependencies import get_vault
     from orcheo_backend.app.mcp_server.email_client import EmailAccounts
 
@@ -94,35 +93,17 @@ def dispatch_scheduled_emails() -> dict[str, int]:
         if item.provider
         in {EmailAccounts.SCHEDULE_PROVIDER, EmailAccounts.IDEMPOTENCY_PROVIDER}
         and item.workspace_id
+        and item.template_id is None
     ]
     workspace_ids = sorted({str(item.workspace_id) for item in candidates})
-    if not workspace_ids:
-        return {"sent": 0, "failed": 0}
-
-    # Celery Beat can be deployed more than once. Hold a PostgreSQL advisory
-    # lock through claim and delivery so one scheduled message is not sent by
-    # two worker replicas at once.
-    pool = getattr(vault, "_pool", None)
-    lock_context = pool.connection() if pool is not None else nullcontext(None)
-    with lock_context as connection:
-        if connection is not None:
-            acquired = connection.execute(
-                "SELECT pg_try_advisory_lock(731204883105) AS acquired"
-            ).fetchone()["acquired"]
-            if not acquired:
-                return {"sent": 0, "failed": 0}
-        try:
-            totals = {"sent": 0, "failed": 0}
-            for workspace_id in workspace_ids:
-                accounts = EmailAccounts(vault, workspace_id, actor="email-scheduler")
-                accounts.cleanup_idempotency()
-                result = accounts.process_scheduled()
-                totals["sent"] += result["sent"]
-                totals["failed"] += result["failed"]
-            return totals
-        finally:
-            if connection is not None:
-                connection.execute("SELECT pg_advisory_unlock(731204883105)")
+    totals = {"sent": 0, "failed": 0}
+    for workspace_id in workspace_ids:
+        accounts = EmailAccounts(vault, workspace_id, actor="email-scheduler")
+        accounts.cleanup_idempotency()
+        result = accounts.process_scheduled()
+        totals["sent"] += result["sent"]
+        totals["failed"] += result["failed"]
+    return totals
 
 
 def _get_event_loop() -> asyncio.AbstractEventLoop:

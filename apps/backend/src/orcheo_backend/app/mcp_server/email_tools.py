@@ -3,24 +3,23 @@
 from __future__ import annotations
 import asyncio
 import inspect
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
-from urllib.parse import quote
 from fastmcp import FastMCP
 from fastmcp.apps import AppConfig
 from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_request
 from fastmcp.tools import ToolResult
 from pydantic import BaseModel, Field
+from orcheo.vault import DuplicateCredentialNameError
 from orcheo_backend.app.authentication import (
     PREAUTHENTICATED_SCOPE_KEY,
     RequestContext,
 )
 from orcheo_backend.app.dependencies import get_vault
+from orcheo_backend.app.errors import WorkspaceQuotaExceededError
 from orcheo_backend.app.mcp_server._shared import (
     DESTRUCTIVE,
-    MCP_ACTOR,
     READ_ONLY,
     WRITE,
     WorkspaceArg,
@@ -42,6 +41,8 @@ from orcheo_backend.app.mcp_server.form_tokens import (
     verify_form_token,
 )
 from orcheo_backend.app.mcp_server.scopes import requires
+from orcheo_backend.app.workspace import get_workspace_repository
+from orcheo_backend.app.workspace_governance import ensure_workspace_credential_quota
 
 
 EMAIL_FORM_URI = "ui://orcheo/email-account-form"
@@ -108,41 +109,31 @@ async def _verify_form(
     )
 
 
-def _as_account_config(
-    manager: EmailAccounts, actor: str, account_id: str
-) -> dict[str, Any]:
-    row = manager._row(actor, account_id)
-    return manager._account_result(row)
-
-
-def _function_signature(
-    model: type[BaseModel], *, workspace: bool = True
-) -> inspect.Signature:
+def _function_signature(model: type[BaseModel]) -> inspect.Signature:
     params: list[inspect.Parameter] = []
     for name, field in model.model_fields.items():
         default = field.default
         if field.is_required():
             default = inspect.Parameter.empty
         elif field.default_factory is not None:
-            default = field.default_factory()
+            default = field.get_default(call_default_factory=True)
         params.append(
             inspect.Parameter(
                 name,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
                 default=default,
                 annotation=field.rebuild_annotation(),
             )
         )
-    if workspace:
-        params.append(
-            inspect.Parameter(
-                "workspace",
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                default=None,
-                annotation=WorkspaceArg,
-            )
+    params.append(
+        inspect.Parameter(
+            "workspace",
+            inspect.Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=WorkspaceArg,
         )
-    return inspect.Signature(params, return_annotation=dict[str, Any])
+    )
+    return inspect.Signature(params, return_annotation=Any)
 
 
 def _register_model_tool(
@@ -168,20 +159,25 @@ def _register_model_tool(
             return await asyncio.to_thread(_dispatch, manager, name, data, actor)
         except ServiceError as error:
             raise ToolError(error.message) from error
+        except WorkspaceQuotaExceededError as error:
+            raise ToolError(error.message) from error
         except ValueError as error:
             raise ToolError(str(error)) from error
 
     invoke.__name__ = name
     invoke.__doc__ = description
-    invoke.__signature__ = _function_signature(model)  # type: ignore[attr-defined]
+    signature = _function_signature(model)
+    invoke.__signature__ = signature  # type: ignore[attr-defined]
+    invoke.__annotations__ = {
+        **{param.name: param.annotation for param in signature.parameters.values()},
+        "return": signature.return_annotation,
+    }
     annotations = (
         DESTRUCTIVE if destructive else WRITE if access == "write" else READ_ONLY
     )
     app: AppConfig | None = None
     if app_only:
         app = AppConfig(resource_uri=EMAIL_FORM_URI, visibility=["app"])
-    elif name == "open_email_settings":
-        app = AppConfig(resource_uri=EMAIL_FORM_URI, prefers_border=True)
     server.tool(
         name=name,
         title=title,
@@ -316,6 +312,7 @@ def _register_account_tools(server: FastMCP) -> None:
                 client_id=_client_id(context),
                 workspace=active["slug"],
                 workspace_id=str(active["workspace_id"]),
+                credential_id=None,  # The form can switch between workspace mailboxes.
                 purpose="email_account",
             )
         )
@@ -346,7 +343,7 @@ def _register_private_account_actions(server: FastMCP) -> None:  # noqa: C901
         if form.credential_id and form.credential_id != data["account_id"]:
             raise ToolError("This form is bound to another email account.")
         account = await asyncio.to_thread(
-            _as_account_config, manager, caller_subject(), data["account_id"]
+            manager.get_account_settings, caller_subject(), data["account_id"]
         )
         return ToolResult(
             content=(
@@ -363,38 +360,19 @@ def _register_private_account_actions(server: FastMCP) -> None:  # noqa: C901
         manager, form = await _verify_form(data.pop("form_token"), workspace=workspace)
         if form.credential_id and form.credential_id != data.get("account_id"):
             raise ToolError("This form is bound to another email account.")
-        parsed = EmailAccountSave.model_validate(data)
-        current, config = await asyncio.to_thread(
-            manager.prepare_account, caller_subject(), parsed.model_dump(mode="python")
-        )
-        name = f"mailbox-{parsed.email_address.lower()}"
-        payload = {
-            "name": name,
-            "provider": manager.ACCOUNT_PROVIDER,
-            "secret": json.dumps(config, separators=(",", ":")),
-            "actor": MCP_ACTOR,
-            "access": "shared",
-            "scopes": ["email:imap", "email:smtp"],
-        }
-        async with api_client(form.workspace) as api:
-            if current is None:
-                saved = await api.post("/api/credentials", json_body=payload)
-                account_id = str(saved["id"])
-            else:
-                await api.request(
-                    "PATCH",
-                    f"/api/credentials/"
-                    f"{quote(str(current['_credential'].id), safe='')}",
-                    json_body=payload,
-                )
-                account_id = str(current["_credential"].id)
-        if parsed.is_default:
-            await asyncio.to_thread(manager.set_default, caller_subject(), account_id)
-        else:
-            await asyncio.to_thread(manager._ensure_default, caller_subject())
-        account = await asyncio.to_thread(
-            _as_account_config, manager, caller_subject(), account_id
-        )
+        if not data.get("account_id"):
+            workspace_record = await asyncio.to_thread(
+                get_workspace_repository().get_workspace, manager.workspace_uuid
+            )
+            await ensure_workspace_credential_quota(manager.vault, workspace_record)
+        try:
+            account = await asyncio.to_thread(
+                manager.save_account, caller_subject(), data
+            )
+        except DuplicateCredentialNameError as error:
+            raise ToolError(
+                "That mailbox address is already in use in this workspace."
+            ) from error
         return {"saved": True, "account": account}
 
     async def test_account(
@@ -416,10 +394,9 @@ def _register_private_account_actions(server: FastMCP) -> None:  # noqa: C901
         manager, form = await _verify_form(data["form_token"], workspace=workspace)
         if form.credential_id and form.credential_id != data["account_id"]:
             raise ToolError("This form is bound to another email account.")
-        async with api_client(form.workspace) as api:
-            await api.delete(f"/api/credentials/{quote(data['account_id'], safe='')}")
-        await asyncio.to_thread(manager._ensure_default, caller_subject())
-        return {"deleted": True, "account_id": data["account_id"]}
+        return await asyncio.to_thread(
+            manager.delete_account, caller_subject(), data["account_id"]
+        )
 
     _register_model_tool(
         server,
@@ -476,17 +453,7 @@ def register_email_tools(server: FastMCP) -> None:
         model,
         access,
         destructive,
-        app_only,
     ) in TOOL_SPECS.items():
-        if name in {
-            "open_email_settings",
-            "list_email_accounts",
-            "get_email_account_settings",
-            "save_email_account",
-            "test_email_account",
-            "delete_email_account",
-        }:
-            continue
         _register_model_tool(
             server,
             name=name,
@@ -495,7 +462,6 @@ def register_email_tools(server: FastMCP) -> None:
             model=model,
             access=access,
             destructive=destructive,
-            app_only=app_only,
         )
 
 

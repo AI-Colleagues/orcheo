@@ -57,7 +57,7 @@ class InMemoryCredentialVault(BaseCredentialVault):
     def _iter_metadata(
         self, *, workspace_id: str | None = None
     ) -> Iterable[CredentialMetadata]:
-        for metadata in self._store.values():
+        for metadata in tuple(self._store.values()):
             if workspace_id is not None and metadata.workspace_id not in {
                 None,
                 workspace_id,

@@ -223,6 +223,9 @@ the Orcheo credential vault. Use `open_email_settings` to open the private
 mailbox form; passwords entered there do not pass through the model. Email
 tools use the credentials internally to connect to mail servers and never
 return them. `email:read` and `email:write` are separate, opt-in OAuth scopes.
+Linked mailboxes and scheduled mail are shared across the active workspace.
+Members can use them through the email tools their client is authorized to call.
+The generic vault API cannot reveal or modify email tool credentials.
 The mail client supports search, reading, folders, attachments, drafts, replies,
 forwards, calendar invitation responses and scheduled sending.
 
@@ -242,7 +245,15 @@ forwards, calendar invitation responses and scheduled sending.
 
 Scheduled messages are stored encrypted in the workspace vault and sent by
 Celery Beat. Set `ORCHEO_EMAIL_DISPATCH_INTERVAL` to change the polling interval
-(seconds; default `60`).
+(in seconds, default `60`). Cancellation succeeds while a message is waiting
+for a worker to claim it. Cancelled and fully sent messages are removed from
+the queue. `list_scheduled_emails` shows failed and partial deliveries for 30
+days. A partial result includes the message ID and the recipients SMTP refused.
+The dispatcher does not retry failed or partial deliveries automatically.
+
+Completed idempotency results are replayable for one day. An interrupted claim
+blocks reuse of its key for 30 days. Check the mailbox before resending when the
+previous delivery outcome is unknown.
 
 `evaluate_workflow` waits for completion within `timeout_seconds` (default 60,
 maximum 300). It returns an execution ID, status and result; full events are
