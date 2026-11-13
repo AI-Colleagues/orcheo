@@ -10,6 +10,9 @@ import redis
 from starlette.concurrency import run_in_threadpool
 from orcheo.config import get_settings
 from orcheo.workspace import WorkspaceQuotas
+from orcheo_backend.app.credential_internal import (
+    INTERNAL_EMAIL_CREDENTIAL_PROVIDERS,
+)
 from orcheo_backend.app.errors import (
     WorkspaceQuotaExceededError,
     WorkspaceRateLimitError,
@@ -224,13 +227,18 @@ async def ensure_workspace_credential_quota(
     credentials = await run_in_threadpool(
         lambda: vault.list_all_credentials(workspace_id=workspace_id)
     )
-    if len(credentials) >= workspace.quotas.max_credentials:
+    counted_credentials = [
+        item
+        for item in credentials
+        if item.provider not in INTERNAL_EMAIL_CREDENTIAL_PROVIDERS
+    ]
+    if len(counted_credentials) >= workspace.quotas.max_credentials:
         raise WorkspaceQuotaExceededError(
             f"Workspace {workspace_slug} reached its credential quota",
             code="workspace.quota.credentials",
             details={
                 "limit": workspace.quotas.max_credentials,
-                "current": len(credentials),
+                "current": len(counted_credentials),
             },
         )
 

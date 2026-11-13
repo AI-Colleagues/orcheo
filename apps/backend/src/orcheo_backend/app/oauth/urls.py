@@ -21,6 +21,8 @@ SUPPORTED_SCOPES: tuple[str, ...] = (
     *DEFAULT_USER_SCOPES,
     "workspaces:write",
     "admin:tokens:write",
+    "email:read",
+    "email:write",
 )
 # New mutating capabilities require an explicit request and user consent.
 DEFAULT_OAUTH_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES

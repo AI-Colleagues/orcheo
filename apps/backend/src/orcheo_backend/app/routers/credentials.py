@@ -15,6 +15,9 @@ from orcheo_backend.app.authentication import (
     get_request_context,
     is_oauth_client_context,
 )
+from orcheo_backend.app.credential_internal import (
+    INTERNAL_EMAIL_CREDENTIAL_PROVIDERS,
+)
 from orcheo_backend.app.credential_utils import (
     credential_to_response,
     scope_from_access,
@@ -68,7 +71,11 @@ async def list_credentials(
         credentials = await run_in_threadpool(
             lambda: vault.list_credentials(context=context, workspace_id=tid)
         )
-    return [credential_to_response(metadata) for metadata in credentials]
+    return [
+        credential_to_response(metadata)
+        for metadata in credentials
+        if metadata.provider not in INTERNAL_EMAIL_CREDENTIAL_PROVIDERS
+    ]
 
 
 @router.post(
