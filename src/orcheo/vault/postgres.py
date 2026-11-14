@@ -1,13 +1,16 @@
 """PostgreSQL-backed credential vault implementation."""
 
 from __future__ import annotations
+import hashlib
 import json
 import logging
 import threading
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 from uuid import UUID
+from psycopg import Connection
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from orcheo.models import (
@@ -90,6 +93,9 @@ class PostgresCredentialVault(BaseCredentialVault):
         )
         self._initialized = False
         self._init_lock = threading.Lock()
+        self._transaction: ContextVar[Connection[Any] | None] = ContextVar(
+            "vault_transaction", default=None
+        )
 
     def _ensure_initialized(self) -> None:
         if self._initialized:
@@ -121,9 +127,27 @@ class PostgresCredentialVault(BaseCredentialVault):
 
     @contextmanager
     def _connection(self) -> Iterator[Any]:
+        active = self._transaction.get()
+        if active is not None:
+            yield active
+            return
         self._ensure_initialized()
         with self._pool.connection() as conn:
             yield conn
+
+    @contextmanager
+    def credential_lock(self, key: str) -> Iterator[None]:
+        """Hold a transaction-scoped lock and use that connection for vault calls."""
+        lock_id = int.from_bytes(
+            hashlib.sha256(key.encode()).digest()[:8], "big", signed=True
+        )
+        with self._connection() as conn, conn.transaction():
+            conn.execute("SELECT pg_advisory_xact_lock(%s)", (lock_id,))
+            token = self._transaction.set(conn)
+            try:
+                yield
+            finally:
+                self._transaction.reset(token)
 
     # Credential methods
     def _persist_metadata(self, metadata: CredentialMetadata) -> None:

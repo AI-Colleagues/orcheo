@@ -193,6 +193,12 @@ class CredentialOperationsMixin:
         metadata = self._get_metadata(credential_id=credential_id, context=context)
         return metadata.reveal(cipher=self._cipher)
 
+    def get_credential_metadata(
+        self, credential_id: UUID, *, context: CredentialAccessContext | None = None
+    ) -> CredentialMetadata:
+        """Return one credential after checking workspace and scope access."""
+        return self._get_metadata(credential_id=credential_id, context=context)
+
     def list_credentials(
         self,
         *,

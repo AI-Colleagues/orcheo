@@ -80,6 +80,32 @@ def task_failure_handler(
 WORKER_ACTOR = "worker"
 
 
+@celery_app.task(name="orcheo_backend.worker.tasks.dispatch_scheduled_emails")
+def dispatch_scheduled_emails() -> dict[str, int]:
+    """Send due MCP emails stored as encrypted workspace vault entries."""
+    from orcheo_backend.app.dependencies import get_vault
+    from orcheo_backend.app.mcp_server.email_client import EmailAccounts
+
+    vault = get_vault()
+    candidates = [
+        item
+        for item in vault.list_all_credentials()
+        if item.provider
+        in {EmailAccounts.SCHEDULE_PROVIDER, EmailAccounts.IDEMPOTENCY_PROVIDER}
+        and item.workspace_id
+        and item.template_id is None
+    ]
+    workspace_ids = sorted({str(item.workspace_id) for item in candidates})
+    totals = {"sent": 0, "failed": 0, "recovered": 0}
+    for workspace_id in workspace_ids:
+        accounts = EmailAccounts(vault, workspace_id, actor="email-scheduler")
+        accounts.cleanup_idempotency()
+        result = accounts.process_scheduled()
+        for outcome, count in result.items():
+            totals[outcome] += count
+    return totals
+
+
 def _get_event_loop() -> asyncio.AbstractEventLoop:
     """Get or create an event loop for running async code in sync context."""
     try:

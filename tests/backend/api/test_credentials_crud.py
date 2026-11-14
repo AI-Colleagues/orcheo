@@ -285,10 +285,10 @@ def test_update_credential_scope_error_returns_403(
 ) -> None:
     vault = api_client.app.state.vault
 
-    def _raise_scope_error(**kwargs):
+    def _raise_scope_error(credential_id, **kwargs):
         raise WorkflowScopeError("Access denied")
 
-    monkeypatch.setattr(vault, "update_credential", _raise_scope_error)
+    monkeypatch.setattr(vault, "get_credential_metadata", _raise_scope_error)
 
     response = api_client.patch(
         f"/api/credentials/{uuid4()}",

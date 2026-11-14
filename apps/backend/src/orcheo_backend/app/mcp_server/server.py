@@ -14,6 +14,7 @@ from orcheo_backend.app.mcp_server.account_tools import register_account_tools
 from orcheo_backend.app.mcp_server.app_tools import register_app_tools
 from orcheo_backend.app.mcp_server.candidate_tools import register_candidate_tools
 from orcheo_backend.app.mcp_server.catalog_tools import register_catalog_tools
+from orcheo_backend.app.mcp_server.email_tools import register_email_tools
 from orcheo_backend.app.mcp_server.operations_tools import register_operations_tools
 from orcheo_backend.app.mcp_server.run_tools import register_run_tools
 from orcheo_backend.app.mcp_server.scopes import OAuthScopeMiddleware
@@ -45,7 +46,8 @@ Use open_service_token_form to create or revoke service tokens privately; \
 only the user can reveal a newly created token in the App. \
 show_workflow_diagram renders a workflow's graph. Use get_execution_history \
 for recorded steps, validate_workflow_credentials for provider checks, and \
-open_webhook_form for webhook secrets."""
+open_webhook_form for webhook secrets. Email tools use mailbox credentials \
+stored in the Orcheo vault; approve email:read or email:write only when needed."""
 
 
 def mcp_enabled() -> bool:
@@ -101,6 +103,7 @@ def build_mcp_server() -> FastMCP:
     register_webhook_tools(server)
     register_workspace_tools(server)
     register_service_token_tools(server)
+    register_email_tools(server)
     return server
 
 

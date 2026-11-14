@@ -322,6 +322,9 @@ async def test_delete_credential_success() -> None:
     deleted_id = None
 
     class Vault:
+        def get_credential_metadata(self, credential_id, context=None):
+            return SimpleNamespace(provider="api")
+
         def delete_credential(self, credential_id, context=None):
             nonlocal deleted_id
             deleted_id = credential_id
@@ -341,7 +344,7 @@ async def test_delete_credential_not_found() -> None:
     cred_id = uuid4()
 
     class Vault:
-        def delete_credential(self, credential_id, context=None):
+        def get_credential_metadata(self, credential_id, context=None):
             raise CredentialNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -358,7 +361,7 @@ async def test_delete_credential_scope_error() -> None:
     cred_id = uuid4()
 
     class Vault:
-        def delete_credential(self, credential_id, context=None):
+        def get_credential_metadata(self, credential_id, context=None):
             raise WorkflowScopeError("Access denied")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -374,7 +377,7 @@ async def test_reveal_credential_secret_not_found() -> None:
     cred_id = uuid4()
 
     class Vault:
-        def reveal_secret(self, credential_id, context=None):
+        def get_credential_metadata(self, credential_id, context=None):
             raise CredentialNotFoundError("not found")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -392,7 +395,7 @@ async def test_reveal_credential_secret_scope_error() -> None:
     cred_id = uuid4()
 
     class Vault:
-        def reveal_secret(self, credential_id, context=None):
+        def get_credential_metadata(self, credential_id, context=None):
             raise WorkflowScopeError("denied")
 
     with pytest.raises(HTTPException) as exc_info:
@@ -409,7 +412,7 @@ async def test_reveal_credential_secret_refuses_oauth_clients() -> None:
     from orcheo_backend.app import reveal_credential_secret
 
     class Vault:
-        def reveal_secret(self, credential_id, context=None):
+        def get_credential_metadata(self, credential_id, context=None):
             raise AssertionError("secret must not be read")
 
     oauth_client = RequestContext(
@@ -432,6 +435,9 @@ async def test_update_credential_duplicate_name_error() -> None:
     cred_id = uuid4()
 
     class Vault:
+        def get_credential_metadata(self, credential_id, context=None):
+            return SimpleNamespace(provider="api")
+
         def update_credential(self, **kwargs):
             raise DuplicateCredentialNameError("name already in use")
 
@@ -452,6 +458,9 @@ async def test_update_credential_validation_error() -> None:
     cred_id = uuid4()
 
     class Vault:
+        def get_credential_metadata(self, credential_id, context=None):
+            return SimpleNamespace(provider="api")
+
         def update_credential(self, **kwargs):
             raise ValueError("invalid")
 
@@ -473,6 +482,9 @@ async def test_update_credential_scoped_access_requires_workflow_id() -> None:
     request = CredentialUpdateRequest(actor="tester", access="scoped")
 
     class Vault:
+        def get_credential_metadata(self, credential_id, context=None):
+            return SimpleNamespace(provider="api")
+
         def update_credential(self, **kwargs):
             raise AssertionError("update_credential should not be called")
 
@@ -497,6 +509,9 @@ async def test_update_credential_returns_inferred_access() -> None:
     workflow_id = uuid4()
 
     class Vault:
+        def get_credential_metadata(self, credential_id, context=None):
+            return SimpleNamespace(provider="api")
+
         def update_credential(self, **kwargs):
             return CredentialMetadata(
                 id=cred_id,

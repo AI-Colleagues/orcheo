@@ -28,6 +28,8 @@ const SCOPE_LABELS: Record<string, string> = {
   "workflows:write": "Create, change and delete workflows",
   "workflows:execute": "Run workflows",
   "vault:read": "See which credentials exist",
+  "email:read": "Read mail from linked email accounts",
+  "email:write": "Send and manage mail and linked email accounts",
   "vault:write": "Add, change and delete credentials",
   "apps:read": "View hosted apps, bindings and deployments",
   "apps:write": "Create and change hosted apps and deployments",

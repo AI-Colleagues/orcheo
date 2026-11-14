@@ -8,6 +8,9 @@ from celery import Celery
 # Configuration from environment
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 ORCHEO_CRON_DISPATCH_INTERVAL = float(os.getenv("ORCHEO_CRON_DISPATCH_INTERVAL", "60"))
+ORCHEO_EMAIL_DISPATCH_INTERVAL = float(
+    os.getenv("ORCHEO_EMAIL_DISPATCH_INTERVAL", "60")
+)
 ORCHEO_CELERY_BEAT_SCHEDULE_FILE = os.getenv(
     "ORCHEO_CELERY_BEAT_SCHEDULE_FILE", "celerybeat-schedule"
 )
@@ -39,6 +42,10 @@ celery_app.conf.beat_schedule = {
     "dispatch-cron-triggers": {
         "task": "orcheo_backend.worker.tasks.dispatch_cron_triggers",
         "schedule": ORCHEO_CRON_DISPATCH_INTERVAL,
+    },
+    "dispatch-scheduled-emails": {
+        "task": "orcheo_backend.worker.tasks.dispatch_scheduled_emails",
+        "schedule": ORCHEO_EMAIL_DISPATCH_INTERVAL,
     },
 }
 celery_app.conf.beat_schedule_filename = ORCHEO_CELERY_BEAT_SCHEDULE_FILE
