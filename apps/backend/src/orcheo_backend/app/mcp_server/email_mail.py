@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 from orcheo_backend.app.mcp_server.email_client import (
     DownloadEmailAttachment,
+    DraftEmail,
     EmailActions,
     EmailArguments,
     EmailAttachment,
@@ -53,11 +54,7 @@ class ForwardEmail(EmailArguments):
     @classmethod
     def valid_addresses(cls, values: list[str]) -> list[str]:
         """Validate recipient addresses using the send tool's rules."""
-        return SendEmail.valid_addresses(values)
-
-
-class DraftEmail(SendEmail):
-    """A message to keep in Drafts; the same fields as send_email."""
+        return DraftEmail.valid_addresses(values)
 
 
 class MessageRef(EmailArguments):
@@ -231,7 +228,7 @@ TOOL_SPECS: dict[str, tuple[str, str, type[EmailArguments], str, bool]] = {
     ),
     "cancel_scheduled_email": (
         "Cancel a scheduled email",
-        "Stop an email scheduled with send_email from being sent.",
+        "Stop an email scheduled with send_email from being sent, or clear a failed or partly delivered one from list_scheduled_emails.",
         ScheduledRef,
         "write",
         True,

@@ -33,6 +33,10 @@ async def test_email_tools_publish_flat_schemas_and_private_actions(
         assert "account_id" in schema["properties"]
         assert "account_id" not in schema["required"]
     assert tools["find_email_contacts"]["inputSchema"]["required"] == ["query"]
+    # Only sending can be scheduled; the draft tool must not offer it.
+    assert "send_at" in tools["send_email"]["inputSchema"]["properties"]
+    assert "send_at" not in tools["save_email_draft"]["inputSchema"]["properties"]
+    assert "idempotency_key" in tools["save_email_draft"]["inputSchema"]["properties"]
 
 
 @pytest.mark.asyncio()

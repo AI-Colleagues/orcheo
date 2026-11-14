@@ -71,12 +71,12 @@ def test_dispatch_rechecks_later_message_after_successful_cancel(
         dispatch = pool.submit(accounts.process_scheduled)
         try:
             assert entered.wait(5)
-            with pytest.raises(ServiceError, match="still waiting to send"):
+            with pytest.raises(ServiceError, match="cancelled or dismissed"):
                 accounts.cancel_scheduled("test", first)
             assert accounts.cancel_scheduled("test", second)["status"] == "cancelled"
         finally:
             release.set()
-        assert dispatch.result(timeout=5) == {"sent": 1, "failed": 0}
+        assert dispatch.result(timeout=5) == {"sent": 1, "failed": 0, "recovered": 0}
     assert delivered == ["first"]
     assert (
         accounts.vault.list_all_credentials(workspace_id=accounts.workspace_id)[
@@ -103,7 +103,7 @@ def test_partial_delivery_is_visible_and_never_dispatched_again(
         "saved_to_sent": True,
     }
     monkeypatch.setattr(accounts, "send", lambda *args, **kwargs: outcome)
-    assert accounts.process_scheduled() == {"sent": 0, "failed": 1}
+    assert accounts.process_scheduled() == {"sent": 0, "failed": 1, "recovered": 0}
     [partial] = accounts.list_scheduled("test")
     assert partial["status"] == "partial"
     assert partial["account_id"] == account_id
@@ -115,7 +115,7 @@ def test_partial_delivery_is_visible_and_never_dispatched_again(
     assert "private body" not in record
     assert "private@example.org" not in record
     assert json.loads(record)["extra_attachments"] == []
-    assert accounts.process_scheduled() == {"sent": 0, "failed": 0}
+    assert accounts.process_scheduled() == {"sent": 0, "failed": 0, "recovered": 0}
 
 
 def test_legacy_terminal_schedules_and_abandoned_idempotency_claims_expire(
@@ -149,7 +149,7 @@ def test_legacy_terminal_schedules_and_abandoned_idempotency_claims_expire(
     )
     monkeypatch.setattr(email_client, "datetime", Clock)
     accounts.cleanup_idempotency()
-    assert accounts.process_scheduled() == {"sent": 0, "failed": 1}
+    assert accounts.process_scheduled() == {"sent": 0, "failed": 0, "recovered": 1}
     [entry] = accounts.vault.list_all_credentials(workspace_id=accounts.workspace_id)
     assert entry.name == "sending"
     assert accounts.list_scheduled("test")[0]["status"] == "failed"

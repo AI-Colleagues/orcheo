@@ -11,7 +11,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_request
 from fastmcp.tools import ToolResult
 from pydantic import BaseModel, Field
-from orcheo.vault import DuplicateCredentialNameError
+from orcheo.vault import DuplicateCredentialNameError, VaultError
 from orcheo_backend.app.authentication import (
     PREAUTHENTICATED_SCOPE_KEY,
     RequestContext,
@@ -161,6 +161,11 @@ def _register_model_tool(
             raise ToolError(error.message) from error
         except WorkspaceQuotaExceededError as error:
             raise ToolError(error.message) from error
+        except VaultError as error:
+            # A mailbox or message removed mid-request: say so without vault detail.
+            raise ToolError(
+                "Stored email settings changed during this request. Try again."
+            ) from error
         except ValueError as error:
             raise ToolError(str(error)) from error
 

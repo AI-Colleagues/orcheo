@@ -96,13 +96,13 @@ def dispatch_scheduled_emails() -> dict[str, int]:
         and item.template_id is None
     ]
     workspace_ids = sorted({str(item.workspace_id) for item in candidates})
-    totals = {"sent": 0, "failed": 0}
+    totals = {"sent": 0, "failed": 0, "recovered": 0}
     for workspace_id in workspace_ids:
         accounts = EmailAccounts(vault, workspace_id, actor="email-scheduler")
         accounts.cleanup_idempotency()
         result = accounts.process_scheduled()
-        totals["sent"] += result["sent"]
-        totals["failed"] += result["failed"]
+        for outcome, count in result.items():
+            totals[outcome] += count
     return totals
 
 

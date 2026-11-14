@@ -216,7 +216,7 @@ class EmailAttachment(EmailArguments):
         return value
 
 
-class SendEmail(EmailArguments):
+class DraftEmail(EmailArguments):
     account_id: EmailIdentifier | None = None
     to: list[str] = Field(default_factory=list, max_length=50)
     cc: list[str] = Field(default_factory=list, max_length=50)
@@ -233,11 +233,6 @@ class SendEmail(EmailArguments):
         default=None,
         max_length=100,
         description="Your own key for this send; a retry with the same key is not sent twice.",
-    )
-    send_at: str | None = Field(
-        default=None,
-        max_length=40,
-        description="Schedule for later (ISO 8601 with offset), up to 30 days ahead.",
     )
 
     @field_validator("to", "cc", "bcc")
@@ -262,20 +257,6 @@ class SendEmail(EmailArguments):
             return None
         return cls.valid_addresses([value])[0]
 
-    @field_validator("send_at")
-    @classmethod
-    def aware_send_at(cls, value: str | None) -> str | None:
-        if value is not None:
-            from datetime import datetime
-
-            try:
-                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError as error:
-                raise ValueError("Use an ISO 8601 time with a UTC offset.") from error
-            if parsed.utcoffset() is None:
-                raise ValueError("Use an ISO 8601 time with a UTC offset.")
-        return value
-
     @field_validator("subject", "in_reply_to")
     @classmethod
     def no_header_injection(cls, value: str | None) -> str | None:
@@ -291,7 +272,7 @@ class SendEmail(EmailArguments):
         return values
 
     @model_validator(mode="after")
-    def valid_message(self) -> SendEmail:
+    def valid_message(self) -> DraftEmail:
         if not self.body_text and not self.body_html:
             raise ValueError("Provide a text or HTML message body.")
         if sum(map(len, (self.to, self.cc, self.bcc))) == 0:
@@ -306,6 +287,26 @@ class SendEmail(EmailArguments):
             if len(raw) > MAX_ATTACHMENT_SIZE:
                 raise ValueError("Each attachment must be 500 KB or less.")
         return self
+
+
+class SendEmail(DraftEmail):
+    send_at: str | None = Field(
+        default=None,
+        max_length=40,
+        description="Schedule for later (ISO 8601 with offset), up to 30 days ahead.",
+    )
+
+    @field_validator("send_at")
+    @classmethod
+    def aware_send_at(cls, value: str | None) -> str | None:
+        if value is not None:
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError as error:
+                raise ValueError("Use an ISO 8601 time with a UTC offset.") from error
+            if parsed.utcoffset() is None:
+                raise ValueError("Use an ISO 8601 time with a UTC offset.")
+        return value
 
 
 class EmailMessageIds(EmailArguments):
@@ -535,6 +536,32 @@ def _unb64(value: str) -> bytes:
         ) from error
 
 
+def _uidvalidity(client: imaplib.IMAP4) -> int | None:
+    """The selected folder's UIDVALIDITY, or None when the server gave no number."""
+    values = client.response("UIDVALIDITY")[1]
+    value = values[0] if values else None
+    return int(value) if isinstance(value, bytes) and value.isdigit() else None
+
+
+def _parse_attachment_id(attachment_id: str) -> tuple[str, int]:
+    """The message and MIME part index an attachment identifier names."""
+    try:
+        kind, message_id, index = json.loads(_unb64(attachment_id))
+        if (
+            kind != "attachment"
+            or not isinstance(message_id, str)
+            or not isinstance(index, int)
+            or isinstance(index, bool)
+            or index < 0
+        ):
+            raise ValueError
+    except (ValueError, TypeError, json.JSONDecodeError) as error:
+        raise ServiceError(
+            "email.invalid_attachment", "Attachment identifier is invalid.", 400
+        ) from error
+    return message_id, index
+
+
 def _decode_header(value: str | None) -> str:
     if not value:
         return ""
@@ -668,6 +695,19 @@ def _part_payload(part: Message) -> bytes:
     return payload if isinstance(payload, bytes) else b""
 
 
+def _part_text(part: Message) -> str:
+    """A text part's content, decoded leniently.
+
+    Senders name charsets Python has never heard of; the words in the message
+    are still worth returning, so those fall back to UTF-8.
+    """
+    payload = _part_payload(part)
+    try:
+        return payload.decode(part.get_content_charset() or "utf-8", "replace")
+    except LookupError:
+        return payload.decode("utf-8", "replace")
+
+
 def _append_imap_message(
     client: imaplib.IMAP4, folder: str, message: EmailMessage, flags: str
 ) -> tuple[str, list[bytes | None]]:
@@ -697,8 +737,7 @@ def _email_text(message: EmailMessage, *, html_body: bool = False) -> str:
         try:
             content = cast(EmailMessage, part).get_content()
         except (LookupError, UnicodeDecodeError, email.errors.MessageError):
-            payload = _part_payload(part)
-            content = payload.decode(part.get_content_charset() or "utf-8", "replace")
+            content = _part_text(part)
         if isinstance(content, str):
             chunks.append(content)
     return "\n".join(chunks)
@@ -736,6 +775,32 @@ def html_to_text(html: str) -> str:
     return re.sub(r"\n\s*\n+", "\n\n", re.sub(r"[ \t]+", " ", text)).strip()
 
 
+_ICS_ESCAPE = re.compile(r"\\(.)", re.DOTALL)
+_ICS_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _ics_unescape(match: re.Match[str]) -> str:
+    """One escape sequence of an iCalendar TEXT value (RFC 5545 section 3.3.11)."""
+    return "\n" if match.group(1) in "nN" else match.group(1)
+
+
+def _ics_text(value: str) -> str:
+    """Escape untrusted text for an iCalendar TEXT value.
+
+    Backslash goes first so the escapes added after it are not doubled, and line
+    breaks become escaped newlines so a value can never start a new content line.
+    """
+    escaped = value.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+    escaped = escaped.replace("\r\n", "\\n").replace("\r", "\\n")
+    return _ICS_CONTROL.sub("", escaped.replace("\n", "\\n"))
+
+
+def _ics_param(value: str) -> str:
+    """A property parameter value that cannot end the parameter or the line."""
+    cleaned = _ICS_CONTROL.sub("", " ".join(value.split())).replace('"', "'")
+    return f'"{cleaned}"' if any(char in cleaned for char in ";:,") else cleaned
+
+
 def _unfold_ics(text: str) -> list[str]:
     lines: list[str] = []
     for line in text.replace("\r\n", "\n").split("\n"):
@@ -763,9 +828,7 @@ def parse_calendar(text: str) -> list[dict[str, Any]]:
             events.append(current)
             current = None
         elif current is not None:
-            unescaped = (
-                value.replace("\\n", "\n").replace("\\,", ",").replace("\\;", ";")
-            )
+            unescaped = _ICS_ESCAPE.sub(_ics_unescape, value)
             field = {
                 "UID": "uid",
                 "SUMMARY": "summary",
@@ -804,9 +867,7 @@ def _calendar_parts(message: email.message.Message) -> list[dict[str, Any]]:
     for part in message.walk():
         if part.get_content_type() != "text/calendar":
             continue
-        payload = _part_payload(part)
-        text = payload.decode(part.get_content_charset() or "utf-8", "replace")
-        invites.extend(parse_calendar(text))
+        invites.extend(parse_calendar(_part_text(part)))
     return invites
 
 
@@ -1416,6 +1477,7 @@ class EmailAccounts:
             )
         protocols = ("imap", "smtp") if protocol == "both" else (protocol,)
         outcomes: dict[str, Any] = {}
+        tested_at: dict[str, str] = {}
         for name in protocols:
             try:
                 if name == "imap":
@@ -1432,17 +1494,21 @@ class EmailAccounts:
             except ServiceError as error:
                 status = "failed"
                 message = error.message
-            column = "imap" if name == "imap" else "smtp"
-            config = row["_config"]
-            config[f"{column}_status"] = status
-            config[f"{column}_tested_at"] = datetime.now(UTC).isoformat()
-            self._write(row, config)
+            tested_at[name] = datetime.now(UTC).isoformat()
             outcomes[name] = {"status": status, "message": message}
+        # The connections can take a while. Record only the outcome, on the
+        # settings as they are now, so a save made meanwhile is not reverted.
+        with self.vault.credential_lock(f"email-accounts:{self.workspace_id}"):
+            current = self._row(actor_id, account_id)
+            config = current["_config"]
+            for name, outcome in outcomes.items():
+                config[f"{name}_status"] = outcome["status"]
+                config[f"{name}_tested_at"] = tested_at[name]
+            self._write(current, config)
         return {"account_id": account_id, "connections": outcomes}
 
-    def _message_location(
-        self, actor_id: str, message_id: str
-    ) -> tuple[dict[str, Any], str, int, int]:
+    @staticmethod
+    def _decode_message_id(message_id: str) -> tuple[str, str, int, int]:
         try:
             parts = json.loads(_unb64(message_id))
             if not isinstance(parts, list) or len(parts) != 4:
@@ -1457,7 +1523,30 @@ class EmailAccounts:
             raise ServiceError(
                 "email.invalid_id", "Email identifier is invalid.", 400
             ) from error
+        return account_id, folder, uidvalidity, uid
+
+    def _message_location(
+        self, actor_id: str, message_id: str
+    ) -> tuple[dict[str, Any], str, int, int]:
+        account_id, folder, uidvalidity, uid = self._decode_message_id(message_id)
         return self._selected_account(actor_id, account_id), folder, uidvalidity, uid
+
+    def _group_messages(
+        self, actor_id: str, message_ids: list[str]
+    ) -> tuple[
+        dict[tuple[str, str, int], list[tuple[int, str]]], dict[str, dict[str, Any]]
+    ]:
+        """Group messages by folder generation, resolving each mailbox once."""
+        rows: dict[str, dict[str, Any]] = {}
+        groups: dict[tuple[str, str, int], list[tuple[int, str]]] = {}
+        for message_id in message_ids:
+            account_id, folder, validity, uid = self._decode_message_id(message_id)
+            if account_id not in rows:
+                rows[account_id] = self._selected_account(actor_id, account_id)
+            groups.setdefault((account_id, folder, validity), []).append(
+                (uid, message_id)
+            )
+        return groups, rows
 
     def _fetch_raw(
         self, client: imaplib.IMAP4, folder: str, uidvalidity: int, uid: int
@@ -1467,8 +1556,7 @@ class EmailAccounts:
             raise ServiceError(
                 "email.folder_not_found", "Mail folder could not be opened.", 404
             )
-        actual = client.response("UIDVALIDITY")[1]
-        if not actual or int(actual[0]) != uidvalidity:
+        if _uidvalidity(client) != uidvalidity:
             raise ServiceError(
                 "email.message_expired",
                 "This email identifier is no longer valid. Search the folder again.",
@@ -1513,14 +1601,13 @@ class EmailAccounts:
                 raise ServiceError(
                     "email.folder_not_found", "Mail folder could not be opened.", 404
                 )
-            validity_response = client.response("UIDVALIDITY")[1]
-            if not validity_response or not validity_response[0].isdigit():
+            uidvalidity = _uidvalidity(client)
+            if uidvalidity is None:
                 raise ServiceError(
                     "email.invalid_mailbox",
                     "The IMAP server did not provide a stable mailbox identifier.",
                     502,
                 )
-            uidvalidity = int(validity_response[0])
             criteria: list[str] = ["UNSEEN"] if args["unread_only"] else ["ALL"]
             if args.get("after"):
                 criteria.extend(
@@ -1718,14 +1805,7 @@ class EmailAccounts:
         return {"email": result}
 
     def download_attachment(self, actor_id: str, attachment_id: str) -> dict[str, Any]:
-        try:
-            kind, message_id, index = json.loads(_unb64(attachment_id))
-            if kind != "attachment" or not isinstance(index, int):
-                raise ValueError
-        except (ValueError, TypeError, json.JSONDecodeError) as error:
-            raise ServiceError(
-                "email.invalid_attachment", "Attachment identifier is invalid.", 400
-            ) from error
+        message_id, index = _parse_attachment_id(attachment_id)
         row, folder, uidvalidity, uid = self._message_location(actor_id, message_id)
         client = self._imap(row)
         try:
@@ -1758,17 +1838,8 @@ class EmailAccounts:
     def mark_read(
         self, actor_id: str, message_ids: list[str], is_read: bool
     ) -> dict[str, Any]:
-        locations = [
-            self._message_location(actor_id, message_id) for message_id in message_ids
-        ]
         # Keep the original IDs alongside UIDs for an exact, actor-scoped result.
-        grouped_ids: dict[tuple[str, str, int], list[tuple[int, str]]] = {}
-        for message_id, (row, folder, validity, uid) in zip(
-            message_ids, locations, strict=True
-        ):
-            grouped_ids.setdefault((row["id"], folder, validity), []).append(
-                (uid, message_id)
-            )
+        grouped_ids, rows = self._group_messages(actor_id, message_ids)
         if len(grouped_ids) > 5:
             raise ServiceError(
                 "email.too_many_mailboxes",
@@ -1776,42 +1847,42 @@ class EmailAccounts:
                 400,
             )
         affected: list[str] = []
+        failed: list[dict[str, str]] = []
         for (account_id, folder, validity), entries in grouped_ids.items():
-            row = self._row(actor_id, account_id)
-            client = self._imap(row)
+            client = self._imap(rows[account_id])
             try:
                 kind, _ = client.select(_imap_quote(folder), readonly=False)
-                actual = client.response("UIDVALIDITY")[1]
-                if kind != "OK" or not actual or int(actual[0]) != validity:
+                if kind != "OK" or _uidvalidity(client) != validity:
+                    failed.extend(
+                        {"message_id": message_id, "code": "email.message_expired"}
+                        for _, message_id in entries
+                    )
                     continue
                 for uid, message_id in entries:
                     operation = "+FLAGS.SILENT" if is_read else "-FLAGS.SILENT"
                     kind, _ = client.uid("store", str(uid), operation, "(\\Seen)")
                     if kind == "OK":
                         affected.append(message_id)
+                    else:
+                        failed.append(
+                            {"message_id": message_id, "code": "email.action_failed"}
+                        )
             finally:
                 try:
                     client.logout()
                 except (OSError, imaplib.IMAP4.error):
                     pass
-        return {
+        result: dict[str, Any] = {
             "is_read": is_read,
             "affected_count": len(affected),
             "message_ids": affected,
         }
+        if failed:
+            result["failed"] = failed
+        return result
 
     def manage_messages(self, actor_id: str, args: dict[str, Any]) -> dict[str, Any]:
-        locations = [
-            self._message_location(actor_id, message_id)
-            for message_id in args["message_ids"]
-        ]
-        grouped: dict[tuple[str, str, int], list[tuple[int, str]]] = {}
-        for message_id, (row, folder, validity, uid) in zip(
-            args["message_ids"], locations, strict=True
-        ):
-            grouped.setdefault((row["id"], folder, validity), []).append(
-                (uid, message_id)
-            )
+        grouped, rows = self._group_messages(actor_id, args["message_ids"])
         if len(grouped) > 5:
             raise ServiceError(
                 "email.too_many_mailboxes",
@@ -1822,12 +1893,11 @@ class EmailAccounts:
         failed: list[dict[str, str]] = []
         moved: list[dict[str, str]] = []
         for (account_id, folder, validity), entries in grouped.items():
-            row = self._row(actor_id, account_id)
+            row = rows[account_id]
             client = self._imap(row)
             try:
                 kind, _ = client.select(_imap_quote(folder), readonly=False)
-                actual = client.response("UIDVALIDITY")[1]
-                if kind != "OK" or not actual or int(actual[0]) != validity:
+                if kind != "OK" or _uidvalidity(client) != validity:
                     failed.extend(
                         {"message_id": message_id, "code": "email.message_expired"}
                         for _, message_id in entries
@@ -2562,6 +2632,27 @@ class EmailAccounts:
             "subject": _decode_header(draft.get("Subject")),
         }
 
+    @staticmethod
+    def _thread_uids(client: imaplib.IMAP4, header_ids: set[str]) -> set[int]:
+        """UIDs of the messages naming any of these Message-IDs, in one SEARCH."""
+        terms = [
+            ("HEADER", field, _imap_raw_quote(header_id.strip()))
+            for header_id in sorted(header_ids)[:10]
+            for field in ("MESSAGE-ID", "REFERENCES", "IN-REPLY-TO")
+        ]
+        if not terms:
+            return set()
+        # IMAP's OR takes two keys, so n terms nest as: OR t1 OR t2 ... tn.
+        criteria = [
+            token
+            for index, term in enumerate(terms)
+            for token in (("OR", *term) if index < len(terms) - 1 else term)
+        ]
+        kind, data = client.uid("search", *criteria)
+        if kind != "OK" or not data or not data[0]:
+            return set()
+        return {int(item) for item in data[0].split()}
+
     def thread(self, actor_id: str, message_id: str, limit: int = 30) -> dict[str, Any]:
         """Find the conversation across its folder and Sent, oldest first.
 
@@ -2589,33 +2680,27 @@ class EmailAccounts:
                 kind, _ = client.select(_imap_quote(name), readonly=True)
                 if kind != "OK":
                     continue
-                validity_data = client.response("UIDVALIDITY")[1]
-                if not validity_data:
+                validity = _uidvalidity(client)
+                if validity is None:
                     continue
-                validity = int(validity_data[0])
-                uids: set[int] = set()
-                for header_id in list(ids)[:10]:
-                    quoted = _imap_raw_quote(header_id.strip())
-                    for field in ("MESSAGE-ID", "REFERENCES", "IN-REPLY-TO"):
-                        kind, data = client.uid("search", "HEADER", field, quoted)
-                        if kind == "OK" and data and data[0]:
-                            uids.update(int(item) for item in data[0].split())
-                for found_uid in sorted(uids)[-limit:]:
-                    kind, fetched = client.uid(
-                        "fetch",
-                        str(found_uid),
-                        "(UID FLAGS BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID)])",
-                    )
-                    if kind != "OK":
+                uids = self._thread_uids(client, ids)
+                if not uids:
+                    continue
+                kind, fetched = client.uid(
+                    "fetch",
+                    ",".join(map(str, sorted(uids)[-limit:])),
+                    "(UID FLAGS BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID)])",
+                )
+                if kind != "OK":
+                    continue
+                for part in fetched or []:
+                    if not isinstance(part, tuple):
                         continue
-                    raw_headers = next(
-                        (part[1] for part in fetched or [] if isinstance(part, tuple)),
-                        b"",
-                    )
-                    meta = next(
-                        (part[0] for part in fetched or [] if isinstance(part, tuple)),
-                        b"",
-                    )
+                    meta, raw_headers = part
+                    uid_match = re.search(rb"\bUID\s+(\d+)", meta, re.I)
+                    if not uid_match:
+                        continue
+                    found_uid = int(uid_match.group(1))
                     parsed = BytesParser(policy=email.policy.default).parsebytes(
                         raw_headers
                     )
@@ -2654,14 +2739,7 @@ class EmailAccounts:
         self, actor_id: str, attachment_id: str, max_chars: int
     ) -> dict[str, Any]:
         """The words in an attachment: plain text, HTML or PDF."""
-        try:
-            kind, message_id, index = json.loads(_unb64(attachment_id))
-            if kind != "attachment" or not isinstance(index, int):
-                raise ValueError
-        except (ValueError, TypeError, json.JSONDecodeError) as error:
-            raise ServiceError(
-                "email.invalid_attachment", "Attachment identifier is invalid.", 400
-            ) from error
+        message_id, index = _parse_attachment_id(attachment_id)
         _, _, _, _, message = self._parsed(actor_id, message_id)
         parts = list(message.walk())
         if index >= len(parts):
@@ -2674,14 +2752,12 @@ class EmailAccounts:
         if content_type == "application/pdf":
             text = _pdf_text(payload)
         elif content_type == "text/html":
-            text = html_to_text(
-                payload.decode(part.get_content_charset() or "utf-8", "replace")
-            )
+            text = html_to_text(_part_text(part))
         elif content_type.startswith("text/") or content_type in {
             "application/json",
             "application/xml",
         }:
-            text = payload.decode(part.get_content_charset() or "utf-8", "replace")
+            text = _part_text(part)
         else:
             raise ServiceError(
                 "email.attachment_not_text",
@@ -2734,19 +2810,20 @@ class EmailAccounts:
             "VERSION:2.0",
             "METHOD:REPLY",
             "BEGIN:VEVENT",
-            f"UID:{invite['uid']}",
+            f"UID:{_ics_text(invite['uid'])}",
             f"DTSTAMP:{stamp}",
             f"ORGANIZER:mailto:{organizer}",
-            f"ATTENDEE;PARTSTAT={status};CN={row['display_name']}:mailto:{row['email_address']}",
+            f"ATTENDEE;PARTSTAT={status};CN={_ics_param(row['display_name'])}"
+            f":mailto:{row['email_address']}",
         ]
-        if invite.get("sequence"):
+        # The invitation is untrusted: only a plain number may be echoed back.
+        if re.fullmatch(r"\d{1,9}", str(invite.get("sequence") or "")):
             lines.append(f"SEQUENCE:{invite['sequence']}")
-        if invite.get("summary"):
-            lines.append(
-                "SUMMARY:" + invite["summary"].replace(",", "\\,").replace(";", "\\;")
-            )
+        summary = " ".join(str(invite.get("summary") or "").split())
+        if summary:
+            lines.append(f"SUMMARY:{_ics_text(summary)}")
         if comment:
-            lines.append("COMMENT:" + comment.replace("\n", "\\n").replace(",", "\\,"))
+            lines.append(f"COMMENT:{_ics_text(comment)}")
         lines += ["END:VEVENT", "END:VCALENDAR"]
         label = {
             "accepted": "Accepted",
@@ -2758,7 +2835,7 @@ class EmailAccounts:
             {
                 "to": [organizer],
                 "cc": [],
-                "subject": f"{label}: {invite.get('summary') or 'Invitation'}"[:998],
+                "subject": f"{label}: {summary or 'Invitation'}"[:998],
                 "body_text": comment
                 or f"{row['display_name']} has {response} this invitation.",
                 "include_signature": False,
@@ -2957,6 +3034,7 @@ class EmailAccounts:
         )
 
     def cancel_scheduled(self, actor_id: str, scheduled_id: str) -> dict[str, Any]:
+        """Stop a waiting message, or clear a failed or partly delivered one."""
         del actor_id
         try:
             credential_id = uuid.UUID(scheduled_id)
@@ -2965,12 +3043,16 @@ class EmailAccounts:
         if credential_id is not None:
             with self.vault.credential_lock(f"email-schedule:{credential_id}"):
                 metadata = self._email_record(credential_id, self.SCHEDULE_PROVIDER)
-                if metadata and self._secret(metadata).get("status") == "scheduled":
+                status = self._secret(metadata).get("status") if metadata else None
+                if metadata and status in {"scheduled", "failed", "partial"}:
                     self.vault.delete_credential(metadata.id, context=self.context)
-                    return {"scheduled_id": scheduled_id, "status": "cancelled"}
+                    return {
+                        "scheduled_id": scheduled_id,
+                        "status": "cancelled" if status == "scheduled" else "dismissed",
+                    }
         raise ServiceError(
             "email.scheduled_not_found",
-            "No scheduled email with that ID is still waiting to send.",
+            "No scheduled email with that ID can be cancelled or dismissed.",
             404,
         )
 
@@ -3046,8 +3128,12 @@ class EmailAccounts:
             self._write_email_record(metadata, schedule)
 
     def process_scheduled(self, limit: int = 20) -> dict[str, int]:
-        """Send due workspace emails from their encrypted vault records."""
-        counts = {"sent": 0, "failed": 0}
+        """Send due workspace emails from their encrypted vault records.
+
+        ``recovered`` counts interrupted sends this pass marked as failed; those
+        are housekeeping, not deliveries attempted now.
+        """
+        counts = {"sent": 0, "failed": 0, "recovered": 0}
         now = datetime.now(UTC)
         due: list[tuple[datetime, uuid.UUID]] = []
         for metadata in self._metadata(self.SCHEDULE_PROVIDER):
@@ -3062,7 +3148,7 @@ class EmailAccounts:
                     or status in {"partial", "failed"}
                     and age >= EMAIL_FAILURE_RETENTION
                 ) and self._recover_schedule(metadata.id, now):
-                    counts["failed"] += 1
+                    counts["recovered"] += 1
                 continue
             try:
                 send_at = datetime.fromisoformat(schedule["send_at"])
