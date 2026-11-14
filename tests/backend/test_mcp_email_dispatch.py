@@ -197,8 +197,18 @@ def test_immediate_sends_skip_the_queue() -> None:
     assert [call[0] for call in recorder.calls] == ["send"]
 
 
-@pytest.mark.parametrize("when", [_later(minutes=-1), _later(days=31)])
-def test_schedules_outside_the_next_thirty_days_are_refused(when: str) -> None:
+# The times are built inside the test: parametrize IDs must be identical in every
+# pytest-xdist worker, and a timestamp taken at import time never is.
+@pytest.mark.parametrize(
+    "offset",
+    [{"minutes": -1}, {"days": 31}],
+    ids=["in-the-past", "beyond-thirty-days"],
+)
+def test_schedules_outside_the_next_thirty_days_are_refused(
+    offset: dict[str, float],
+) -> None:
     with pytest.raises(ServiceError) as raised:
-        email_tools._send_message(Recorder(), "me", {**SEND, "send_at": when})  # noqa: SLF001
+        email_tools._send_message(  # noqa: SLF001
+            Recorder(), "me", {**SEND, "send_at": _later(**offset)}
+        )
     assert raised.value.code == "email.invalid_send_at"
