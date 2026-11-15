@@ -31,7 +31,7 @@
         <label style="flex:1">Linked mailbox
           <select id="account-select"><option value="">Add a mailbox</option></select>
         </label>
-        <button id="new-account" type="button">Add mailbox</button>
+        <button id="new-account" type="button" disabled>Add mailbox</button>
       </div>
       <div class="grid">
         <label>Display name<input id="display-name" maxlength="100" /></label>
@@ -59,9 +59,9 @@
         <label class="wide">Signature<textarea id="signature" maxlength="2000"></textarea></label>
       </div>
       <div class="actions">
-        <button class="primary" id="save" type="button">Save mailbox</button>
-        <button id="test" type="button">Test IMAP and SMTP</button>
-        <button class="danger" id="delete" type="button">Remove mailbox</button>
+        <button class="primary" id="save" type="button" disabled>Save mailbox</button>
+        <button id="test" type="button" disabled>Test IMAP and SMTP</button>
+        <button class="danger" id="delete" type="button" disabled>Remove mailbox</button>
       </div>
       <p id="status" role="status"></p>
     </div>
@@ -139,7 +139,10 @@
       $("account-select").addEventListener("change", async () => {
         try { await loadSettings($("account-select").value); } catch (error) { setStatus(error.message, "error"); }
       });
-      $("new-account").addEventListener("click", () => { $("account-select").value = ""; showAccount(null); setStatus(""); });
+      $("new-account").addEventListener("click", () => {
+        if (!form?.token) return unverified();
+        $("account-select").value = ""; showAccount(null); setStatus("");
+      });
       $("save").addEventListener("click", async () => {
         if (!form?.token) return unverified();
         const payload = {
@@ -168,17 +171,19 @@
         finally { $("save").disabled = false; }
       });
       $("test").addEventListener("click", async () => {
-        if (!form?.token || !activeAccountId) return;
+        if (!form?.token) return unverified();
+        if (!activeAccountId) return;
         $("test").disabled = true; setStatus("Testing IMAP and SMTP…");
         try {
           const result = await call("test_email_account", { form_token: form.token, account_id: activeAccountId, protocol: "both" });
           const outcomes = Object.entries(result.connections || {}).map(([name, item]) => `${name.toUpperCase()}: ${item.status}`).join(" · ");
           setStatus(outcomes || "Connection test finished.", "success");
         } catch (error) { setStatus(error.message, "error"); }
-        finally { $("test").disabled = false; }
+        finally { $("test").disabled = !activeAccountId; }
       });
       $("delete").addEventListener("click", async () => {
-        if (!form?.token || !activeAccountId || !window.confirm("Remove this mailbox and its vault credentials?")) return;
+        if (!form?.token) return unverified();
+        if (!activeAccountId || !window.confirm("Remove this mailbox and its vault credentials?")) return;
         $("delete").disabled = true; setStatus("Removing mailbox…");
         try {
           await call("delete_email_account", { form_token: form.token, account_id: activeAccountId });
@@ -188,7 +193,7 @@
           select.value = ""; showAccount(null); setStatus("Mailbox and vault credential removed.", "success");
           await orcheoBridge.tellModel("The user removed an email account from the Orcheo vault.");
         } catch (error) { setStatus(error.message, "error"); }
-        finally { $("delete").disabled = false; }
+        finally { $("delete").disabled = !activeAccountId; }
       });
       setStatus("Waiting for the form data…");
       orcheoBridge.on("ui/notifications/tool-result", load);

@@ -23,12 +23,29 @@ const element = <T extends HTMLElement = HTMLElement>(id: string): T =>
   appWindow.document.getElementById(id) as T;
 const button = (id: string) => element<HTMLButtonElement>(id);
 const status = () => element("status").textContent ?? "";
+const setStatus = (text: string) => {
+  element("status").textContent = text;
+};
+
+const account = {
+  account_id: "acct-1",
+  display_name: "Work",
+  email_address: "me@example.com",
+  labels: [],
+  is_default: true,
+  enabled: true,
+  save_sent_copy: true,
+};
+const actions = ["save", "new-account", "test", "delete"];
 
 // The host only has to send the tool result while the tool runs, and `_meta`
 // is what carries the token, so both can be missing on a restored view.
-const open = (meta: object = { "orcheo/formToken": token }) =>
+const open = (
+  meta: object = { "orcheo/formToken": token },
+  data: object = { accounts: [] },
+) =>
   handlers["ui/notifications/tool-result"]({
-    structuredContent: { accounts: [] },
+    structuredContent: data,
     _meta: meta,
   });
 
@@ -99,7 +116,15 @@ describe("email account form MCP App", () => {
     expect(status()).toContain("could not be verified");
   });
 
-  it("explains a Save pressed before any data arrived", () => {
+  it("refuses a Save pressed before any data arrived", () => {
+    // Save is inert first, so no click reaches the handler at all.
+    expect(button("save").disabled).toBe(true);
+    button("save").click();
+    expect(callTool).not.toHaveBeenCalled();
+    expect(status()).toContain("Waiting for the form data");
+
+    // Enabled by hand: the guard, not only the markup, must refuse.
+    button("save").disabled = false;
     button("save").click();
 
     expect(callTool).not.toHaveBeenCalled();
@@ -115,5 +140,58 @@ describe("email account form MCP App", () => {
     await vi.waitFor(() =>
       expect(status()).toContain("could not reach the app host"),
     );
+  });
+
+  it("keeps every action inert until the data arrives", () => {
+    for (const id of actions) expect(button(id).disabled).toBe(true);
+
+    vi.advanceTimersByTime(8000);
+
+    expect(status()).toContain("never received its data");
+    for (const id of actions) expect(button(id).disabled).toBe(true);
+  });
+
+  it("keeps the stalled explanation when Add mailbox is pressed", () => {
+    vi.advanceTimersByTime(8000);
+
+    button("new-account").click();
+
+    // A disabled button dispatches no click, so the explanation survives
+    // rather than being cleared by a blank mailbox form that would invite
+    // passwords it could never save.
+    expect(status()).toContain("never received its data");
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("explains Test and Remove pressed before any data arrived", () => {
+    // Enabled by hand: the guards, not only the markup, must refuse.
+    button("test").disabled = false;
+    button("delete").disabled = false;
+
+    button("test").click();
+    expect(status()).toContain("could not be verified");
+
+    setStatus("");
+    button("delete").click();
+    expect(status()).toContain("could not be verified");
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("leaves Remove inert once the last mailbox is gone", async () => {
+    appWindow.confirm = () => true;
+    callTool
+      .mockResolvedValueOnce({ structuredContent: { account } })
+      .mockResolvedValueOnce({ structuredContent: {} });
+    open(undefined, {
+      accounts: [account],
+      account_id: account.account_id,
+    });
+    await vi.waitFor(() => expect(button("delete").disabled).toBe(false));
+
+    button("delete").click();
+
+    await vi.waitFor(() => expect(status()).toContain("removed"));
+    expect(button("delete").disabled).toBe(true);
+    expect(button("test").disabled).toBe(true);
   });
 });
