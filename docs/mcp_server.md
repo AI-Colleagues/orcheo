@@ -104,7 +104,7 @@ The client only sees and can call the tools its approved scopes cover:
 | `vault:write` | `open_credential_form`, `save_credential`, `delete_credential` |
 | `email:accounts:read` | `list_email_accounts` only: display names, addresses, labels and connection health, never server settings or passwords |
 | `email:read` | Search and read mail, attachments, folders and contacts; implies `email:accounts:read` |
-| `email:write` | Send, reply, forward, manage drafts and mailbox settings; implies `email:accounts:read` |
+| `email:write` | Send, reply, forward, manage drafts, and the private mailbox form in full, loading its settings included; implies `email:accounts:read` |
 | `workspaces:read` | Workspace administration metadata, members, invitations and audit events |
 | `workspaces:write` | Workspace creation, lifecycle, membership and invitation changes |
 | `admin:tokens:read` | Service token metadata, without secrets or secret previews |
@@ -233,9 +233,12 @@ Email account settings, including IMAP and SMTP passwords, are encrypted in
 the Orcheo credential vault. Use `open_email_settings` to open the private
 mailbox form; passwords entered there do not pass through the model. Email
 tools use the credentials internally to connect to mail servers and never
-return them. `email:read` and `email:write` are separate, opt-in OAuth scopes;
-only `email:accounts:read`, which lists linked mailboxes without reading any
-mail, is part of a default client registration.
+return them. The form flow sits behind `email:write` end to end — opening it,
+loading a mailbox's settings, saving, testing and removing — so a client
+granted mailbox management needs no mail-reading scope to use it. `email:read`
+and `email:write` are separate, opt-in OAuth scopes; only
+`email:accounts:read`, which lists linked mailboxes without reading any mail,
+is part of a default client registration.
 Linked mailboxes and scheduled mail are shared across the active workspace.
 Members can use them through the email tools their client is authorized to call.
 The generic vault API cannot reveal or modify email tool credentials.

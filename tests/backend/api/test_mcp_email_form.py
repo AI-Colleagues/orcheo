@@ -28,6 +28,7 @@ def _sign_in(
     api_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     identity_type: str = "user",
+    scopes: frozenset[str] = frozenset({"email:read", "email:write"}),
 ) -> None:
     monkeypatch.setitem(
         api_client.app.dependency_overrides,
@@ -36,7 +37,7 @@ def _sign_in(
             subject="anonymous",
             identity_type=identity_type,
             claims={"client_id": "test-mcp"},
-            scopes=frozenset({"email:read", "email:write"}),
+            scopes=scopes,
         ),
     )
 
@@ -225,3 +226,37 @@ async def test_a_mailbox_removed_mid_request_is_not_an_internal_error(
     async with mcp_session(api_client.app) as mcp:
         error = await mcp.call_error("list_scheduled_emails")
     assert error == "Stored email settings changed during this request. Try again."
+
+
+@pytest.mark.asyncio()
+async def test_the_form_flow_needs_only_the_scope_that_opens_it(
+    api_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``email:write`` alone drives the whole mailbox form, mail reading aside.
+
+    The form is opened by ``open_email_settings``, which needs ``email:write``,
+    so every tool it calls has to sit behind that same scope. A client granted
+    ``email:write`` without ``email:read`` must still be able to load an
+    existing mailbox's settings into the form.
+    """
+    _sign_in(api_client, monkeypatch, scopes=frozenset({"email:write"}))
+    install_servers(monkeypatch, FakeIMAP(), FakeSMTP())
+    async with mcp_session(api_client.app) as mcp:
+        listing = (await mcp.rpc("tools/list")).json()["result"]["tools"]
+        names = {tool["name"] for tool in listing}
+        assert "get_email_account_settings" in names
+        assert "search_emails" not in names
+
+        token, _ = await _open(mcp)
+        account_id = (await mcp.call("save_email_account", _payload(token)))["account"][
+            "account_id"
+        ]
+        account_ref = {"form_token": token, "account_id": account_id}
+        settings = await mcp.call("get_email_account_settings", account_ref)
+        assert settings["account"]["imap"]["host"] == "imap.example.org"
+        tested = await mcp.call("test_email_account", account_ref)
+        assert set(tested["connections"]) == {"imap", "smtp"}
+        assert await mcp.call("delete_email_account", account_ref) == {
+            "deleted": True,
+            "account_id": account_id,
+        }

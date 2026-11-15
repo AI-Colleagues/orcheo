@@ -144,10 +144,18 @@ def _register_model_tool(
     description: str,
     model: type[BaseModel],
     access: str,
+    scope: str | None = None,
     destructive: bool = False,
     app_only: bool = False,
     handler: Any = None,
 ) -> None:
+    """Register one email tool.
+
+    ``access`` picks the tool's annotations; ``scope`` the OAuth scope it sits
+    behind, which defaults to ``email:{access}`` and is given explicitly only
+    where a read-only tool belongs to a flow gated by a wider scope.
+    """
+
     async def invoke(**kwargs: Any) -> Any:
         workspace = kwargs.pop("workspace", None)
         try:
@@ -188,7 +196,7 @@ def _register_model_tool(
         title=title,
         description=description,
         annotations=annotations,
-        tags=requires(f"email:{access}"),
+        tags=requires(scope or f"email:{access}"),
         app=app,
     )(invoke)
 
@@ -410,6 +418,11 @@ def _register_private_account_actions(server: FastMCP) -> None:  # noqa: C901
         description="Load non-secret mailbox settings in the private form.",
         model=_FormAccount,
         access="read",
+        # Read-only, but reachable only through the ``email:write`` form that
+        # issues its token, so it sits behind that scope rather than
+        # ``email:read``: a client granted mailbox management but not mail
+        # reading must still be able to load settings into the form.
+        scope="email:write",
         app_only=True,
         handler=get_settings,
     )
