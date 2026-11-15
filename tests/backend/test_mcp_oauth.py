@@ -250,6 +250,7 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "vault:write",
             "workspaces:read",
             "admin:tokens:read",
+            "email:read",
         ]
         verifier = _verifier()
         code = await oauth.authorize(client["client_id"], verifier)
@@ -901,3 +902,54 @@ async def test_authorization_refuses_scopes_the_server_does_not_support(
         query = parse_qs(urlparse(started.headers["location"]).query)
         assert query["error"] == ["invalid_scope"]
         assert "admin" in query["error_description"][0]
+
+
+@pytest.mark.asyncio()
+async def test_default_registration_grants_mailbox_listing_only(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """A client that never names a scope still sees its linked mailboxes."""
+    async with oauth_session(oauth_env) as oauth:
+        issued = await oauth.grant()
+
+        granted = issued["scope"].split()
+        assert "email:read" in granted
+        # The form writes mailbox passwords, so it stays behind a request.
+        assert "email:write" not in granted
+        result = await _mcp(oauth.client, "tools/list", {}, issued["access_token"])
+        names = {item["name"] for item in result.json()["result"]["tools"]}
+        assert "list_email_accounts" in names
+        assert "open_email_settings" not in names
+
+
+@pytest.mark.asyncio()
+async def test_registration_recorded_before_a_default_changed_is_not_widened(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """A stored registration is the default; reconnecting does not widen it.
+
+    This is why a connector added before ``email:read`` became a default has
+    to be removed and added again rather than merely reconnected.
+    """
+    async with oauth_session(oauth_env) as oauth:
+        from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
+
+        client = await oauth.register(scope=" ".join(DEFAULT_USER_SCOPES))
+        verifier = _verifier()
+        started = await oauth.start(client["client_id"], verifier)
+        redirect = await oauth.consent(started.headers["location"])
+        issued = await oauth.token(
+            grant_type="authorization_code",
+            code=parse_qs(urlparse(redirect).query)["code"][0],
+            redirect_uri=REDIRECT_URI,
+            client_id=client["client_id"],
+            code_verifier=verifier,
+        )
+
+        assert issued.status_code == 200, issued.text
+        assert "email:read" not in issued.json()["scope"].split()
+        result = await _mcp(
+            oauth.client, "tools/list", {}, issued.json()["access_token"]
+        )
+        names = {item["name"] for item in result.json()["result"]["tools"]}
+        assert "list_email_accounts" not in names

@@ -24,8 +24,11 @@ SUPPORTED_SCOPES: tuple[str, ...] = (
     "email:read",
     "email:write",
 )
-# New mutating capabilities require an explicit request and user consent.
-DEFAULT_OAUTH_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES
+# Offered to a client that registers without naming scopes. Reading which
+# mailboxes are linked returns names and addresses only, so it is offered by
+# default; everything that mutates, the mailbox settings form included, still
+# requires an explicit request and user consent.
+DEFAULT_OAUTH_SCOPES: tuple[str, ...] = (*DEFAULT_USER_SCOPES, "email:read")
 
 
 def _first_forwarded(value: str | None) -> str | None:

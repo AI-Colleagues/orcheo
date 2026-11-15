@@ -119,18 +119,24 @@ and forms require `workflows:write`. Candidate installation and updates require
 `workflows:write`, while catalog reads require `workflows:read`.
 
 Default tokens and MCP client registrations retain workflow and vault access
-and add `workspaces:read` and `admin:tokens:read`. The supported scopes also
-include `workspaces:write`, `admin:tokens:write`, `email:read` and
-`email:write`, but clients must explicitly request them and obtain user
-consent. Email scopes are not included in default grants. Studio and CLI
-login/refresh tokens use the narrower defaults too. First-party operations
+and add `workspaces:read`, `admin:tokens:read` and `email:read`; listing
+linked mailboxes returns display names and addresses only, never server
+settings or passwords. The supported scopes also include `workspaces:write`,
+`admin:tokens:write` and `email:write`, which clients must request explicitly
+and have the user approve. Studio and CLI login/refresh tokens use the
+narrower defaults and are not granted `email:read`. First-party operations
 still follow the API's existing workspace authorization; service token creation
 cannot delegate scopes absent from the caller's token.
 
-Existing OAuth grants do not gain new scopes automatically. Reconnect and
-approve the needed workspace, service-token or email access. A client that
-registered before a scope existed can still request it, so reconnecting is
-enough and the client does not have to be removed and added again. Workspace
+Existing OAuth grants do not gain new scopes automatically, and a scope a
+client never asks for is never granted. What a client receives is the scope it
+names on the authorization request; when it names none, the scope recorded at
+registration is used instead. So a client registered before `email:read`
+became a default does not pick it up by reconnecting — remove the connector
+and add it again, which registers it afresh with the current defaults. A
+client that does name its scopes needs nothing more than a reconnect, whenever
+it registered, and `email:write` always has to be named. The consent page lists
+exactly what was requested, so it shows which case a client is in. Workspace
 roles still apply; a grant does not turn an editor into an administrator.
 
 The component catalog, workspace discovery (`list_my_workspaces` and
