@@ -67,10 +67,30 @@
     </script>
     <script>
       const $ = (id) => document.getElementById(id);
+      // The host hands this view its data — including the form token the
+      // actions need — in ui/notifications/tool-result, which it only has to
+      // send while the tool runs. A restored or re-rendered view can receive
+      // nothing at all; say so instead of leaving a dead button.
+      const DATA_TIMEOUT_MS = 8000;
+      const REOPEN = "Ask the assistant to open a new service token form.";
+      let delivered = false;
       let form = null;
       const setStatus = (text, kind = "") => {
         $("status").textContent = text;
         $("status").className = kind;
+      };
+      const stalled = setTimeout(() => {
+        if (delivered) return;
+        setStatus(`This form never received its data, so it cannot continue. ${REOPEN}`, "error");
+      }, DATA_TIMEOUT_MS);
+      const settle = () => {
+        delivered = true;
+        clearTimeout(stalled);
+      };
+      const fail = (reason) => {
+        if (delivered) return;
+        settle();
+        setStatus(`${reason} ${REOPEN}`, "error");
       };
       const clearSecret = () => {
         $("secret").value = "";
@@ -84,6 +104,7 @@
         const token = (result._meta || {})["orcheo/formToken"];
         if (!token) {
           if ((result.structuredContent || {}).action) {
+            settle();
             clearSecret();
             form = null;
             $("submit").disabled = true;
@@ -91,6 +112,7 @@
           }
           return;
         }
+        settle();
         clearSecret();
         const data = result.structuredContent || {};
         form = { token, action: data.action, busy: false, done: false };
@@ -185,14 +207,17 @@
         }
       });
       const dispose = () => {
+        settle();
         clearSecret();
         form = null;
         $("submit").disabled = true;
       };
       window.addEventListener("pagehide", dispose);
       orcheoBridge.on("ui/resource-teardown", dispose);
+      setStatus("Waiting for the form data…");
       orcheoBridge.on("ui/notifications/tool-result", load);
-      orcheoBridge.connect("orcheo-service-token-form");
+      orcheoBridge.on("ui/notifications/tool-cancelled", () => fail("Opening this form was cancelled."));
+      orcheoBridge.connect("orcheo-service-token-form").catch(() => fail("This form could not reach the app host."));
     </script>
   </body>
 </html>

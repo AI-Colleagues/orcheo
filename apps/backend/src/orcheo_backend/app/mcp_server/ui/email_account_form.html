@@ -68,10 +68,21 @@
     <script>/* ORCHEO_BRIDGE */</script>
     <script>
       const $ = (id) => document.getElementById(id);
+      // The host hands this view its data — including the form token Save
+      // needs — in ui/notifications/tool-result, which it only has to send
+      // while the tool runs. A restored or re-rendered view can receive
+      // nothing at all; say so instead of leaving Save dead.
+      const DATA_TIMEOUT_MS = 8000;
+      const REOPEN = "Ask the assistant to open a new email account form.";
+      let delivered = false;
       let form = null;
       let accounts = [];
       let activeAccountId = null;
       const setStatus = (text, kind = "") => { $("status").textContent = text; $("status").className = kind; };
+      const unverified = () => setStatus(`This form could not be verified, so it cannot save. ${REOPEN}`, "error");
+      const stalled = setTimeout(() => { if (!delivered) setStatus(`This form never received its data, so it cannot save. ${REOPEN}`, "error"); }, DATA_TIMEOUT_MS);
+      const settle = () => { delivered = true; clearTimeout(stalled); };
+      const fail = (reason) => { if (!delivered) { settle(); setStatus(`${reason} ${REOPEN}`, "error"); } };
       const value = (id) => $(id).value.trim();
       const setValue = (id, item) => { $(id).value = item ?? ""; };
       const call = async (name, args) => {
@@ -109,6 +120,7 @@
         setStatus("");
       };
       const load = async (result) => {
+        settle();
         const data = result.structuredContent || {};
         const meta = result._meta || {};
         form = { token: meta["orcheo/formToken"] };
@@ -120,7 +132,8 @@
         select.value = accounts.some((item) => item.account_id === requested) ? requested : "";
         $("save").disabled = !form.token;
         $("new-account").disabled = !form.token;
-        if (!form.token) { setStatus("This form could not be verified.", "error"); return; }
+        if (!form.token) { unverified(); return; }
+        setStatus("");
         try { await loadSettings(select.value); } catch (error) { setStatus(error.message, "error"); }
       };
       $("account-select").addEventListener("change", async () => {
@@ -128,7 +141,7 @@
       });
       $("new-account").addEventListener("click", () => { $("account-select").value = ""; showAccount(null); setStatus(""); });
       $("save").addEventListener("click", async () => {
-        if (!form?.token) return;
+        if (!form?.token) return unverified();
         const payload = {
           form_token: form.token,
           ...(activeAccountId ? { account_id: activeAccountId } : {}),
@@ -177,8 +190,10 @@
         } catch (error) { setStatus(error.message, "error"); }
         finally { $("delete").disabled = false; }
       });
+      setStatus("Waiting for the form data…");
       orcheoBridge.on("ui/notifications/tool-result", load);
-      orcheoBridge.connect("orcheo-email-account-form");
+      orcheoBridge.on("ui/notifications/tool-cancelled", () => fail("Opening this form was cancelled."));
+      orcheoBridge.connect("orcheo-email-account-form").catch(() => fail("This form could not reach the app host."));
     </script>
   </body>
 </html>
