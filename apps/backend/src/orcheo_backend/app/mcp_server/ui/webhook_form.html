@@ -117,12 +117,35 @@
     <script>/* ORCHEO_BRIDGE */</script>
     <script>
       const $ = (id) => document.getElementById(id);
+      // The host hands this view its data — including the form token Save
+      // needs — in ui/notifications/tool-result, which it only has to send
+      // while the tool runs. A restored or re-rendered view can receive
+      // nothing at all; say so instead of leaving Save dead.
+      const DATA_TIMEOUT_MS = 8000;
+      const REOPEN = "Ask the assistant to open a new webhook form.";
+      let delivered = false;
       let token = null;
       const status = (message, kind = "") => {
         $("status").textContent = message;
         $("status").className = kind;
       };
+      const unverified = () =>
+        status(`This form could not be verified, so it cannot save. ${REOPEN}`, "error");
+      const stalled = setTimeout(() => {
+        if (delivered) return;
+        status(`This form never received its data, so it cannot save. ${REOPEN}`, "error");
+      }, DATA_TIMEOUT_MS);
+      const settle = () => {
+        delivered = true;
+        clearTimeout(stalled);
+      };
+      const fail = (reason) => {
+        if (delivered) return;
+        settle();
+        status(`${reason} ${REOPEN}`, "error");
+      };
       orcheoBridge.on("ui/notifications/tool-result", (result) => {
+        settle();
         token = (result._meta || {})["orcheo/formToken"];
         const config = (result.structuredContent || {}).config || {};
         $("shared-header").value = config.secret_header || "x-webhook-secret";
@@ -130,7 +153,8 @@
         $("shared-secret").value = "";
         $("hmac-secret").value = "";
         $("save").disabled = !token;
-        if (!token) status("Open a new webhook form to continue.", "error");
+        if (token) status("");
+        else unverified();
       });
       const applyMode = () => {
         const mode = $("mode").value;
@@ -142,7 +166,7 @@
       $("mode").addEventListener("change", applyMode);
       applyMode();
       $("save").addEventListener("click", async () => {
-        if (!token) return;
+        if (!token) return unverified();
         $("save").disabled = true;
         status("Saving…");
         try {
@@ -180,7 +204,9 @@
           status(error.message, "error");
         } finally { $("save").disabled = false; }
       });
-      orcheoBridge.connect("orcheo-webhook-form");
+      status("Waiting for the form data…");
+      orcheoBridge.on("ui/notifications/tool-cancelled", () => fail("Opening this form was cancelled."));
+      orcheoBridge.connect("orcheo-webhook-form").catch(() => fail("This form could not reach the app host."));
     </script>
   </body>
 </html>

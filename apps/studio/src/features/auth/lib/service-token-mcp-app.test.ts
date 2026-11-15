@@ -40,12 +40,8 @@ const open = (data: object = {}) =>
     _meta: { "orcheo/formToken": "private-form-token" },
   });
 
-beforeEach(() => {
-  vi.clearAllMocks();
+const mount = (connect = vi.fn().mockResolvedValue({})) => {
   handlers = {};
-  tellModel.mockResolvedValue(undefined);
-  clipboard.mockResolvedValue(undefined);
-  callTool.mockResolvedValue(created);
   frame = document.createElement("iframe");
   document.body.append(frame);
   appWindow = frame.contentWindow!;
@@ -57,7 +53,7 @@ beforeEach(() => {
   const bridge = {
     callTool,
     tellModel,
-    connect: vi.fn(),
+    connect,
     on: (name: string, handler: (result: object) => void) => {
       handlers[name] = handler;
     },
@@ -71,9 +67,20 @@ beforeEach(() => {
     appWindow.document,
     appWindow.navigator,
   );
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  tellModel.mockResolvedValue(undefined);
+  clipboard.mockResolvedValue(undefined);
+  callTool.mockResolvedValue(created);
+  mount();
 });
 
-afterEach(() => frame.remove());
+afterEach(() => {
+  frame.remove();
+  vi.useRealTimers();
+});
 
 describe("service token MCP App", () => {
   it("creates through the private tool and never sends a secret to model context", async () => {
@@ -195,5 +202,37 @@ describe("service token MCP App", () => {
     expect(button("submit").disabled).toBe(true);
     expect(element("status").textContent).toContain("did not deliver the private form");
     expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("explains a view that never receives its tool result", () => {
+    frame.remove();
+    vi.useFakeTimers();
+    mount();
+    expect(element("status").textContent).toContain("Waiting for the form data");
+
+    vi.advanceTimersByTime(8000);
+
+    expect(element("status").textContent).toContain("never received its data");
+    expect(element("status").textContent).toContain("open a new service token form");
+    expect(button("submit").disabled).toBe(true);
+    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("explains a cancelled tool call", () => {
+    handlers["ui/notifications/tool-cancelled"]({ reason: "user cancelled" });
+
+    expect(element("status").textContent).toContain("cancelled");
+    expect(element("status").textContent).toContain("open a new service token form");
+    expect(button("submit").disabled).toBe(true);
+  });
+
+  it("explains a host that never completes the handshake", async () => {
+    frame.remove();
+    mount(vi.fn().mockRejectedValue(new Error("no host")));
+
+    await vi.waitFor(() =>
+      expect(element("status").textContent).toContain("could not reach the app host"),
+    );
+    expect(button("submit").disabled).toBe(true);
   });
 });

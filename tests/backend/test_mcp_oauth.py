@@ -835,3 +835,69 @@ async def test_mutating_capabilities_require_explicit_client_scope(
             result = denied.json()["result"]
             assert result["isError"]
             assert f"not granted {scope}" in str(result)
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ("scope", "tool"),
+    [
+        ("workspaces:write", "create_workspace"),
+        ("email:write", "open_email_settings"),
+    ],
+)
+async def test_authorization_requests_scopes_added_after_registration(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+    scope: str,
+    tool: str,
+) -> None:
+    """A client registered before a scope existed can still ask for it."""
+    async with oauth_session(oauth_env) as oauth:
+        from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
+
+        assert scope not in DEFAULT_USER_SCOPES
+        client = await oauth.register(scope=" ".join(DEFAULT_USER_SCOPES))
+        assert scope not in client["scope"].split()
+        verifier = _verifier()
+        started = await oauth.start(
+            client["client_id"],
+            verifier,
+            scope=" ".join((*DEFAULT_USER_SCOPES, scope)),
+        )
+        assert started.status_code == 302
+        request_id = parse_qs(urlparse(started.headers["location"]).query)["request"][0]
+        consent = await oauth.client.get(
+            f"/api/oauth/requests/{request_id}",
+            headers={"Authorization": f"Bearer {oauth.studio_token()}"},
+        )
+        assert scope in consent.json()["scopes"]
+        redirect = await oauth.consent(started.headers["location"])
+        issued = await oauth.token(
+            grant_type="authorization_code",
+            code=parse_qs(urlparse(redirect).query)["code"][0],
+            redirect_uri=REDIRECT_URI,
+            client_id=client["client_id"],
+            code_verifier=verifier,
+        )
+        assert issued.status_code == 200, issued.text
+        assert scope in issued.json()["scope"].split()
+        result = await _mcp(
+            oauth.client, "tools/list", {}, issued.json()["access_token"]
+        )
+        names = {item["name"] for item in result.json()["result"]["tools"]}
+        assert tool in names
+
+
+@pytest.mark.asyncio()
+async def test_authorization_refuses_scopes_the_server_does_not_support(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """Widening stops at the server's own supported scopes."""
+    async with oauth_session(oauth_env) as oauth:
+        client = await oauth.register()
+        started = await oauth.start(
+            client["client_id"], _verifier(), scope="workflows:read admin"
+        )
+        assert started.status_code == 302
+        query = parse_qs(urlparse(started.headers["location"]).query)
+        assert query["error"] == ["invalid_scope"]
+        assert "admin" in query["error_description"][0]
