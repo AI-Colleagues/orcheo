@@ -22,6 +22,19 @@ from orcheo_backend.app.authentication import (
 
 
 _SCOPE_TAG_PREFIX = "scope:"
+# A broader scope covers the narrower ones it subsumes, so a client that asked
+# for the wider access does not have to name both. Expanded only when checking
+# a tool, never written back into the grant the user approved.
+_IMPLIED_SCOPES: dict[str, frozenset[str]] = {
+    # Reading mail necessarily means knowing which mailboxes are linked.
+    "email:read": frozenset({"email:accounts:read"}),
+    "email:write": frozenset({"email:accounts:read"}),
+}
+
+
+def expand_scopes(scopes: frozenset[str]) -> frozenset[str]:
+    """Return ``scopes`` plus every narrower scope they subsume."""
+    return scopes.union(*(_IMPLIED_SCOPES.get(scope, frozenset()) for scope in scopes))
 
 
 def requires(*scopes: str) -> set[str]:
@@ -48,7 +61,7 @@ def _granted_scopes() -> frozenset[str] | None:
         return None
     context = request.scope.get(PREAUTHENTICATED_SCOPE_KEY)
     if isinstance(context, RequestContext) and is_oauth_client_context(context):
-        return context.scopes
+        return expand_scopes(context.scopes)
     return None
 
 
@@ -90,4 +103,4 @@ class OAuthScopeMiddleware(Middleware):
         return await call_next(context)
 
 
-__all__ = ["OAuthScopeMiddleware", "required_scopes", "requires"]
+__all__ = ["OAuthScopeMiddleware", "expand_scopes", "required_scopes", "requires"]

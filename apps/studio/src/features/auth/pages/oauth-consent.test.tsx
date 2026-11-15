@@ -41,6 +41,7 @@ const pendingRequest = {
     "vault:write",
     "workspaces:write",
     "admin:tokens:write",
+    "email:accounts:read",
     "custom:scope",
   ],
 };
@@ -74,6 +75,7 @@ describe("OAuthConsent", () => {
     expect(
       screen.getByText("Create and revoke service tokens through a private form"),
     ).toBeTruthy();
+    expect(screen.getByText(/email accounts are linked/)).toBeTruthy();
     expect(screen.getByText("custom:scope")).toBeTruthy();
     expect(screen.getByText("127.0.0.1:33418")).toBeTruthy();
     expect(authFetch).toHaveBeenCalledWith(

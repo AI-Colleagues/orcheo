@@ -237,6 +237,22 @@ async def test_client_carries_the_gate_identity() -> None:
     assert echoed["preauthenticated"] is True
 
 
+def test_broader_email_scopes_subsume_mailbox_listing() -> None:
+    from orcheo_backend.app.mcp_server.scopes import expand_scopes
+
+    assert expand_scopes(frozenset({"email:read"})) == {
+        "email:read",
+        "email:accounts:read",
+    }
+    assert expand_scopes(frozenset({"email:write"})) == {
+        "email:write",
+        "email:accounts:read",
+    }
+    # Unrelated scopes are returned untouched, and nothing implies email access.
+    assert expand_scopes(frozenset({"workflows:read"})) == {"workflows:read"}
+    assert expand_scopes(frozenset()) == frozenset()
+
+
 @pytest.mark.asyncio()
 async def test_every_tool_declares_its_oauth_scopes() -> None:
     from orcheo_backend.app.mcp_server import build_mcp_server

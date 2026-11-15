@@ -102,8 +102,9 @@ The client only sees and can call the tools its approved scopes cover:
 | `workflows:execute` | `run_workflow`, `cancel_run` |
 | `vault:read` | `list_credentials`, `check_workflow_credentials` (with `workflows:read`) |
 | `vault:write` | `open_credential_form`, `save_credential`, `delete_credential` |
-| `email:read` | Search and read mail, attachments, folders and linked mailbox metadata |
-| `email:write` | Send, reply, forward, manage drafts and mailbox settings |
+| `email:accounts:read` | `list_email_accounts` only: display names, addresses, labels and connection health, never server settings or passwords |
+| `email:read` | Search and read mail, attachments, folders and contacts; implies `email:accounts:read` |
+| `email:write` | Send, reply, forward, manage drafts and mailbox settings; implies `email:accounts:read` |
 | `workspaces:read` | Workspace administration metadata, members, invitations and audit events |
 | `workspaces:write` | Workspace creation, lifecycle, membership and invitation changes |
 | `admin:tokens:read` | Service token metadata, without secrets or secret previews |
@@ -118,26 +119,28 @@ evaluator definitions can load Python entrypoints. Node execution requires
 and forms require `workflows:write`. Candidate installation and updates require
 `workflows:write`, while catalog reads require `workflows:read`.
 
-Default tokens and MCP client registrations retain workflow and vault access
-and add `workspaces:read`, `admin:tokens:read` and `email:read`; listing
-linked mailboxes returns display names and addresses only, never server
-settings or passwords. The supported scopes also include `workspaces:write`,
-`admin:tokens:write` and `email:write`, which clients must request explicitly
-and have the user approve. Studio and CLI login/refresh tokens use the
-narrower defaults and are not granted `email:read`. First-party operations
-still follow the API's existing workspace authorization; service token creation
-cannot delegate scopes absent from the caller's token.
+MCP client registrations retain workflow and vault access and add
+`workspaces:read`, `admin:tokens:read` and `email:accounts:read`, so a client
+that names no scopes can discover which mailboxes are linked and tell you what
+it still needs. Reading mail is not part of that: `email:read`, `email:write`,
+`workspaces:write` and `admin:tokens:write` must be requested explicitly and
+approved by the user. Studio and CLI login/refresh tokens use the narrower
+defaults and are granted no email scope at all. First-party operations still
+follow the API's existing workspace authorization; service token creation
+cannot delegate scopes absent from the caller's token, and the implications
+above are applied when a tool is checked, not written into the stored grant.
 
 Existing OAuth grants do not gain new scopes automatically, and a scope a
 client never asks for is never granted. What a client receives is the scope it
 names on the authorization request; when it names none, the scope recorded at
-registration is used instead. So a client registered before `email:read`
-became a default does not pick it up by reconnecting — remove the connector
-and add it again, which registers it afresh with the current defaults. A
-client that does name its scopes needs nothing more than a reconnect, whenever
-it registered, and `email:write` always has to be named. The consent page lists
-exactly what was requested, so it shows which case a client is in. Workspace
-roles still apply; a grant does not turn an editor into an administrator.
+registration is used instead. So a client registered before
+`email:accounts:read` became a default does not pick it up by reconnecting —
+remove the connector and add it again, which registers it afresh with the
+current defaults. A client that does name its scopes needs nothing more than a
+reconnect, whenever it registered, and `email:read` and `email:write` always
+have to be named. The consent page lists exactly what was requested, so it
+shows which case a client is in. Workspace roles still apply; a grant does not
+turn an editor into an administrator.
 
 The component catalog, workspace discovery (`list_my_workspaces` and
 `get_active_workspace`) and server-info tools need no scope. Service
@@ -230,7 +233,9 @@ Email account settings, including IMAP and SMTP passwords, are encrypted in
 the Orcheo credential vault. Use `open_email_settings` to open the private
 mailbox form; passwords entered there do not pass through the model. Email
 tools use the credentials internally to connect to mail servers and never
-return them. `email:read` and `email:write` are separate, opt-in OAuth scopes.
+return them. `email:read` and `email:write` are separate, opt-in OAuth scopes;
+only `email:accounts:read`, which lists linked mailboxes without reading any
+mail, is part of a default client registration.
 Linked mailboxes and scheduled mail are shared across the active workspace.
 Members can use them through the email tools their client is authorized to call.
 The generic vault API cannot reveal or modify email tool credentials.

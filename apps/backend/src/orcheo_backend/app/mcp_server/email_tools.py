@@ -330,7 +330,7 @@ def _register_account_tools(server: FastMCP) -> None:
             meta={FORM_TOKEN_META_KEY: token},
         )
 
-    @server.tool(annotations=READ_ONLY, tags=requires("email:read"))
+    @server.tool(annotations=READ_ONLY, tags=requires("email:accounts:read"))
     async def list_email_accounts(workspace: WorkspaceArg = None) -> dict[str, Any]:
         """List linked email accounts without server settings or passwords."""
         accounts, _ = await _manager(workspace)

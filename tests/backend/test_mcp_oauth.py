@@ -23,7 +23,7 @@ from orcheo_backend.app.identity import (
     reset_identity_state,
     set_identity_service,
 )
-from orcheo_backend.app.identity.tokens import mint_access_token
+from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES, mint_access_token
 from orcheo_backend.app.mcp_server import mcp_lifespan
 from tests.backend.api.mcp_support import MCP_HEADERS
 from tests.backend.authentication_test_utils import create_test_client
@@ -250,7 +250,7 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "vault:write",
             "workspaces:read",
             "admin:tokens:read",
-            "email:read",
+            "email:accounts:read",
         ]
         verifier = _verifier()
         code = await oauth.authorize(client["client_id"], verifier)
@@ -908,18 +908,61 @@ async def test_authorization_refuses_scopes_the_server_does_not_support(
 async def test_default_registration_grants_mailbox_listing_only(
     oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
 ) -> None:
-    """A client that never names a scope still sees its linked mailboxes."""
+    """A client that never names a scope sees its mailboxes and nothing else.
+
+    Asserted as the exact set of email tools, so widening the default scope
+    later fails here instead of quietly exposing mail.
+    """
     async with oauth_session(oauth_env) as oauth:
         issued = await oauth.grant()
 
         granted = issued["scope"].split()
-        assert "email:read" in granted
-        # The form writes mailbox passwords, so it stays behind a request.
+        assert "email:accounts:read" in granted
+        # Reading mail and writing mailbox passwords stay behind a request.
+        assert "email:read" not in granted
         assert "email:write" not in granted
         result = await _mcp(oauth.client, "tools/list", {}, issued["access_token"])
         names = {item["name"] for item in result.json()["result"]["tools"]}
+        assert {name for name in names if "mail" in name} == {"list_email_accounts"}
+
+
+@pytest.mark.asyncio()
+async def test_requesting_email_read_still_lists_mailboxes(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """``email:read`` subsumes mailbox listing, so a client need not name both."""
+    async with oauth_session(oauth_env) as oauth:
+        scope = " ".join((*DEFAULT_USER_SCOPES, "email:read"))
+        issued = await oauth.grant(scope=scope)
+
+        assert "email:accounts:read" not in issued["scope"].split()
+        result = await _mcp(oauth.client, "tools/list", {}, issued["access_token"])
+        names = {item["name"] for item in result.json()["result"]["tools"]}
         assert "list_email_accounts" in names
+        assert "search_emails" in names
+        # Mutating mail and the mailbox password form need email:write.
+        assert "send_email" not in names
         assert "open_email_settings" not in names
+
+
+@pytest.mark.asyncio()
+async def test_calling_a_mail_tool_without_email_read_is_refused(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """Hiding a mail tool is not enough; calling it is refused as well."""
+    async with oauth_session(oauth_env) as oauth:
+        issued = await oauth.grant()
+
+        result = await _mcp(
+            oauth.client,
+            "tools/call",
+            {"name": "search_emails", "arguments": {"query": "invoice"}},
+            issued["access_token"],
+        )
+        assert result.status_code == 200, result.text
+        payload = result.json()["result"]
+        assert payload["isError"] is True
+        assert "was not granted email:read, which 'search_emails' needs" in str(payload)
 
 
 @pytest.mark.asyncio()
@@ -928,12 +971,10 @@ async def test_registration_recorded_before_a_default_changed_is_not_widened(
 ) -> None:
     """A stored registration is the default; reconnecting does not widen it.
 
-    This is why a connector added before ``email:read`` became a default has
-    to be removed and added again rather than merely reconnected.
+    This is why a connector added before ``email:accounts:read`` became a
+    default has to be removed and added again rather than merely reconnected.
     """
     async with oauth_session(oauth_env) as oauth:
-        from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
-
         client = await oauth.register(scope=" ".join(DEFAULT_USER_SCOPES))
         verifier = _verifier()
         started = await oauth.start(client["client_id"], verifier)
@@ -947,7 +988,7 @@ async def test_registration_recorded_before_a_default_changed_is_not_widened(
         )
 
         assert issued.status_code == 200, issued.text
-        assert "email:read" not in issued.json()["scope"].split()
+        assert "email:accounts:read" not in issued.json()["scope"].split()
         result = await _mcp(
             oauth.client, "tools/list", {}, issued.json()["access_token"]
         )
