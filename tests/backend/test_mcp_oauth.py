@@ -963,6 +963,10 @@ async def test_calling_a_mail_tool_without_email_read_is_refused(
         payload = result.json()["result"]
         assert payload["isError"] is True
         assert "was not granted email:read, which 'search_emails' needs" in str(payload)
+        # email:read is not part of a default registration, so the remedy is
+        # the client requesting it, not reconnecting what is already there.
+        assert "only the scopes it requests" in str(payload)
+        assert "Reconnect it and approve that access" not in str(payload)
 
 
 @pytest.mark.asyncio()

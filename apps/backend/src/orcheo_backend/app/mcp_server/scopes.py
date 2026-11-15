@@ -19,6 +19,7 @@ from orcheo_backend.app.authentication import (
     RequestContext,
     is_oauth_client_context,
 )
+from orcheo_backend.app.oauth.urls import DEFAULT_OAUTH_SCOPES
 
 
 _SCOPE_TAG_PREFIX = "scope:"
@@ -30,11 +31,44 @@ _IMPLIED_SCOPES: dict[str, frozenset[str]] = {
     "email:read": frozenset({"email:accounts:read"}),
     "email:write": frozenset({"email:accounts:read"}),
 }
+# What a client that registers without naming scopes is granted, and so the
+# scopes a stale registration can pick up by registering afresh.
+_DEFAULT_SCOPES = frozenset(DEFAULT_OAUTH_SCOPES)
 
 
 def expand_scopes(scopes: frozenset[str]) -> frozenset[str]:
     """Return ``scopes`` plus every narrower scope they subsume."""
     return scopes.union(*(_IMPLIED_SCOPES.get(scope, frozenset()) for scope in scopes))
+
+
+def _how_to_grant(missing: frozenset[str]) -> str:
+    """Return the advice that actually widens a grant to cover ``missing``.
+
+    A client is granted the scopes it names on the authorization request, or
+    the ones recorded at registration when it names none, so reconnecting adds
+    nothing the client does not ask for. Which remedy applies depends on
+    whether the scope belongs to a default registration: one that does is
+    picked up by registering afresh, one that does not only by the client
+    requesting it.
+    """
+    requestable = sorted(missing - _DEFAULT_SCOPES)
+    stale_default = sorted(missing & _DEFAULT_SCOPES)
+    advice: list[str] = []
+    if requestable:
+        subject = ", ".join(requestable) if stale_default else "that access"
+        advice.append(
+            "An application receives only the scopes it requests, so it has to "
+            f"ask for {subject} and you approve it on the consent page; "
+            "reconnecting it changes nothing on its own."
+        )
+    if stale_default:
+        subject = ", ".join(stale_default) if requestable else "it"
+        advice.append(
+            f"A default registration now includes {subject}, so this connection "
+            "predates it: remove the connector and add it again rather than "
+            "reconnecting."
+        )
+    return " ".join(advice)
 
 
 def requires(*scopes: str) -> set[str]:
@@ -94,11 +128,11 @@ class OAuthScopeMiddleware(Middleware):
         if granted is not None:
             name = context.message.name
             tool = await self._server.get_tool(name)
-            missing = set() if tool is None else required_scopes(tool) - granted
+            missing = frozenset() if tool is None else required_scopes(tool) - granted
             if missing:
                 raise ToolError(
                     f"This application was not granted {', '.join(sorted(missing))}, "
-                    f"which '{name}' needs. Reconnect it and approve that access."
+                    f"which '{name}' needs. {_how_to_grant(missing)}"
                 )
         return await call_next(context)
 

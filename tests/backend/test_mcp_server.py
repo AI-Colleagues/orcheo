@@ -253,6 +253,33 @@ def test_broader_email_scopes_subsume_mailbox_listing() -> None:
     assert expand_scopes(frozenset()) == frozenset()
 
 
+def test_a_refused_tool_says_how_the_scope_is_actually_granted() -> None:
+    """The advice has to be the remedy that works for the scope in question.
+
+    A client is granted the scopes it names, or its registration scope when it
+    names none, so "reconnect it" is wrong for a scope the client never asks
+    for and right only for one a fresh registration now carries.
+    """
+    from orcheo_backend.app.mcp_server.scopes import _how_to_grant
+
+    # Outside a default registration: only the client requesting it helps.
+    requestable = _how_to_grant(frozenset({"email:read"}))
+    assert "only the scopes it requests" in requestable
+    assert "reconnecting it changes nothing on its own" in requestable
+    assert "remove the connector" not in requestable
+    assert "Reconnect it and approve that access" not in requestable
+
+    # A default the registration predates: registering afresh picks it up.
+    stale_default = _how_to_grant(frozenset({"email:accounts:read"}))
+    assert "remove the connector and add it again" in stale_default
+    assert "only the scopes it requests" not in stale_default
+
+    # Both kinds at once: each scope is named with the advice that applies.
+    mixed = _how_to_grant(frozenset({"email:read", "email:accounts:read"}))
+    assert "ask for email:read" in mixed
+    assert "default registration now includes email:accounts:read" in mixed
+
+
 @pytest.mark.asyncio()
 async def test_every_tool_declares_its_oauth_scopes() -> None:
     from orcheo_backend.app.mcp_server import build_mcp_server
