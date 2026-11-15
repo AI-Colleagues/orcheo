@@ -128,8 +128,10 @@ still follow the API's existing workspace authorization; service token creation
 cannot delegate scopes absent from the caller's token.
 
 Existing OAuth grants do not gain new scopes automatically. Reconnect and
-approve the needed workspace, service-token or email access. Workspace roles still
-apply; a grant does not turn an editor into an administrator.
+approve the needed workspace, service-token or email access. A client that
+registered before a scope existed can still request it, so reconnecting is
+enough and the client does not have to be removed and added again. Workspace
+roles still apply; a grant does not turn an editor into an administrator.
 
 The component catalog, workspace discovery (`list_my_workspaces` and
 `get_active_workspace`) and server-info tools need no scope. Service
@@ -242,6 +244,16 @@ forwards, calendar invitation responses and scheduled sending.
 | `list_scheduled_emails`, `cancel_scheduled_email` | Inspect scheduled mail or cancel a message before it is sent. |
 | `set_default_email_account` | Choose the mailbox used when an action does not name an account. |
 | `get_email_account_settings`, `save_email_account`, `test_email_account`, `delete_email_account` | App-only actions for the private mailbox settings form. |
+
+Each mailbox keeps its own IMAP and SMTP host, username and password in one
+encrypted record, so choosing an account chooses its servers and its `From`
+address together. Tools take an optional `account_id` from
+`list_email_accounts`; without one they use the default mailbox, falling back
+to the oldest enabled one, and report that an account is needed when none is
+linked. Message, thread and attachment identifiers carry their own account,
+so reads, replies and forwards stay on the mailbox a message arrived in
+without naming it. Searches and folder listings cover one mailbox per call;
+query each `account_id` in turn to cover several.
 
 Scheduled messages are stored encrypted in the workspace vault and sent by
 Celery Beat. Set `ORCHEO_EMAIL_DISPATCH_INTERVAL` to change the polling interval

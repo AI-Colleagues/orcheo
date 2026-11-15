@@ -26,7 +26,11 @@ from mcp.server.auth.provider import (
     construct_redirect_uri,
 )
 from mcp.server.auth.settings import ClientRegistrationOptions, RevocationOptions
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth import (
+    InvalidScopeError,
+    OAuthClientInformationFull,
+    OAuthToken,
+)
 from starlette.concurrency import run_in_threadpool
 from starlette.routing import Route
 from orcheo.identity import (
@@ -52,6 +56,27 @@ AUTHORIZATION_REQUEST_TTL = timedelta(minutes=10)
 AUTHORIZATION_CODE_TTL = timedelta(minutes=5)
 _REQUEST_ID_BYTES = 24
 _CODE_BYTES = 32
+
+
+class RegisteredClient(OAuthClientInformationFull):
+    """Client whose registered scopes are a default, not a lasting ceiling.
+
+    Dynamic registration freezes the scopes a client may ever ask for, so a
+    client registered before a capability shipped could never request it, even
+    with the user in front of the consent page agreeing. ``SUPPORTED_SCOPES``
+    stays the ceiling and consent stays the gate, while the registered scopes
+    remain what an authorization request that names none is granted.
+    """
+
+    def validate_scope(self, requested_scope: str | None) -> list[str] | None:
+        """Allow any scope this server supports, whenever it was registered."""
+        if requested_scope is None:
+            return None
+        requested = requested_scope.split(" ")
+        unsupported = sorted(set(requested) - set(SUPPORTED_SCOPES))
+        if unsupported:
+            raise InvalidScopeError(f"Unsupported scopes: {', '.join(unsupported)}.")
+        return requested
 
 
 class OrcheoAuthorizationCode(AuthorizationCode):
@@ -156,7 +181,7 @@ class OrcheoOAuthProvider(OAuthProvider):
             )
         except OAuthClientNotFoundError:
             return None
-        client = OAuthClientInformationFull.model_validate(record.metadata)
+        client = RegisteredClient.model_validate(record.metadata)
         if client.token_endpoint_auth_method != "none":
             client.client_secret = derive_client_secret(self._signing_secret, client_id)
         return client
