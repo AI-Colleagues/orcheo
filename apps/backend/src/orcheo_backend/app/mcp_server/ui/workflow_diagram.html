@@ -114,11 +114,17 @@
       } catch {
         mermaid = null;
       }
-      const init = await orcheoBridge.connect("orcheo-workflow-diagram");
-      if (init && init.hostContext && init.hostContext.theme === "dark") {
-        theme = "dark";
+      try {
+        const init = await orcheoBridge.connect("orcheo-workflow-diagram");
+        if (init && init.hostContext && init.hostContext.theme === "dark") {
+          theme = "dark";
+        }
+        render();
+      } catch {
+        $("status").textContent =
+          "This diagram could not reach the app host. Ask the assistant to show it again.";
+        $("status").className = "error";
       }
-      render();
     </script>
   </body>
 </html>

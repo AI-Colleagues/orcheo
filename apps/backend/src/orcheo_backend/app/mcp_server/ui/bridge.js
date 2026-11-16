@@ -58,9 +58,11 @@ const orcheoBridge = (() => {
   on("ui/notifications/host-context-changed", applyTheme);
 
   const connect = async (name) => {
+    // Hosts validate these params against the spec and refuse the whole
+    // handshake when one is missing, so the app's identity must be `appInfo`.
     const result = await request("ui/initialize", {
       protocolVersion: PROTOCOL_VERSION,
-      clientInfo: { name, version: "1.0.0" },
+      appInfo: { name, version: "1.0.0" },
       appCapabilities: {},
     });
     applyTheme(result && result.hostContext);
