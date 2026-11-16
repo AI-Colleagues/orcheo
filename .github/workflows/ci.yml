@@ -143,10 +143,12 @@ jobs:
           path: coverage-data
           merge-multiple: true
 
+      # --skip-covered keeps the HTML report under smokeshow's 50 MiB site limit
+      # (the full report with test contexts is ~58 MiB). Totals are unaffected.
       - name: Build coverage reports
         run: |
           uv run coverage combine coverage-data
-          uv run coverage html --show-contexts --title "Coverage for ${{ github.sha }}"
+          uv run coverage html --show-contexts --skip-covered --title "Coverage for ${{ github.sha }}"
           uv run coverage xml
           uv run diff-cover coverage.xml --format html:index.html
 
