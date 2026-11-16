@@ -540,7 +540,8 @@ class PostgresIdentityRepository:
             cursor = conn.execute(
                 """
                 UPDATE oauth_authorization_requests
-                   SET user_id = %s,
+                   SET scopes = %s,
+                       user_id = %s,
                        decided_at = %s,
                        code_hash = %s,
                        code_expires_at = %s
@@ -548,6 +549,7 @@ class PostgresIdentityRepository:
                    AND decided_at IS NULL
                 """,
                 (
+                    Jsonb(request.scopes),
                     None if request.user_id is None else str(request.user_id),
                     request.decided_at,
                     request.code_hash,

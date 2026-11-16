@@ -73,10 +73,17 @@ describe("OAuthConsent", () => {
       screen.getByText("Create and delete workspaces and manage membership"),
     ).toBeTruthy();
     expect(
-      screen.getByText("Create and revoke service tokens through a private form"),
+      screen.getByText(
+        "Create and revoke service tokens through a private form",
+      ),
     ).toBeTruthy();
     expect(screen.getByText(/email accounts are linked/)).toBeTruthy();
     expect(screen.getByText("custom:scope")).toBeTruthy();
+    // Each known scope shows its code under its description.
+    expect(screen.getByText("vault:write")).toBeTruthy();
+    const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(boxes).toHaveLength(pendingRequest.scopes.length);
+    expect(boxes.every((box) => box.checked && !box.disabled)).toBe(true);
     expect(screen.getByText("127.0.0.1:33418")).toBeTruthy();
     expect(authFetch).toHaveBeenCalledWith(
       "http://backend/api/oauth/requests/req-1",
@@ -104,7 +111,77 @@ describe("OAuthConsent", () => {
     expect(decisionUrl).toBe(
       "http://backend/api/oauth/requests/req-1/decision",
     );
-    expect(JSON.parse(init.body)).toEqual({ approve });
+    expect(JSON.parse(init.body)).toEqual(
+      approve ? { approve, scopes: pendingRequest.scopes } : { approve },
+    );
+  });
+
+  it("grants only the permissions left ticked", async () => {
+    const user = userEvent.setup();
+    authFetch
+      .mockResolvedValueOnce(jsonResponse(pendingRequest))
+      .mockResolvedValueOnce(jsonResponse({ redirect_url: "http://cb" }));
+
+    render(<OAuthConsent />);
+    await user.click(
+      await screen.findByRole("checkbox", { name: /delete credentials/ }),
+    );
+    await user.click(screen.getByRole("checkbox", { name: /service tokens/ }));
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("http://cb"));
+    expect(JSON.parse(authFetch.mock.calls[1][1].body)).toEqual({
+      approve: true,
+      scopes: [
+        "workflows:read",
+        "workspaces:write",
+        "email:accounts:read",
+        "custom:scope",
+      ],
+    });
+  });
+
+  it("keeps a permission another kept one includes", async () => {
+    const user = userEvent.setup();
+    authFetch
+      .mockResolvedValueOnce(
+        jsonResponse({
+          ...pendingRequest,
+          scopes: ["email:accounts:read", "email:read"],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ redirect_url: "http://cb" }));
+
+    render(<OAuthConsent />);
+    const accounts = (await screen.findByRole("checkbox", {
+      name: /email accounts are linked/,
+    })) as HTMLInputElement;
+    const mail = screen.getByRole("checkbox", {
+      name: /Read mail/,
+    }) as HTMLInputElement;
+
+    expect(accounts.checked && accounts.disabled).toBe(true);
+    expect(screen.getByText("Included with email:read")).toBeTruthy();
+
+    await user.click(mail);
+    expect(accounts.disabled).toBe(false);
+    await user.click(accounts);
+    expect(accounts.checked).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    // Ticking mail again brings the mailbox listing back with it.
+    await user.click(mail);
+    expect(accounts.checked && accounts.disabled).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("http://cb"));
+    expect(JSON.parse(authFetch.mock.calls[1][1].body).scopes).toEqual([
+      "email:accounts:read",
+      "email:read",
+    ]);
   });
 
   it("shows why a decision failed", async () => {

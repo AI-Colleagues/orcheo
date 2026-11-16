@@ -45,11 +45,11 @@ def _how_to_grant(missing: frozenset[str]) -> str:
     """Return the advice that actually widens a grant to cover ``missing``.
 
     A client is granted the scopes it names on the authorization request, or
-    the ones recorded at registration when it names none, so reconnecting adds
-    nothing the client does not ask for. Which remedy applies depends on
-    whether the scope belongs to a default registration: one that does is
-    picked up by registering afresh, one that does not only by the client
-    requesting it.
+    the ones recorded at registration when it names none, less any the user
+    unticked on the consent page; refreshing never widens a grant. Which
+    remedy applies depends on whether the scope belongs to a default
+    registration: one that does comes back by registering afresh and keeping
+    it ticked, one that does not only by the client requesting it.
     """
     requestable = sorted(missing - _DEFAULT_SCOPES)
     stale_default = sorted(missing & _DEFAULT_SCOPES)
@@ -64,8 +64,9 @@ def _how_to_grant(missing: frozenset[str]) -> str:
     if stale_default:
         subject = ", ".join(stale_default) if requestable else "it"
         advice.append(
-            f"A default registration now includes {subject}, so this connection "
-            "predates it: remove the connector and add it again rather than "
+            f"A default registration includes {subject}, so this connection "
+            "either predates it or had it unticked on the consent page: remove "
+            "the connector and add it again, keeping it ticked, rather than "
             "reconnecting."
         )
     return " ".join(advice)

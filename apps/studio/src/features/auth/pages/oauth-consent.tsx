@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/design-system/ui/button";
@@ -39,8 +39,19 @@ const SCOPE_LABELS: Record<string, string> = {
   "workspaces:read": "View workspace administration, members and invitations",
   "workspaces:write": "Create and delete workspaces and manage membership",
   "admin:tokens:read": "View service token metadata without secrets",
-  "admin:tokens:write": "Create and revoke service tokens through a private form",
+  "admin:tokens:write":
+    "Create and revoke service tokens through a private form",
 };
+
+// Mirrors ``_IMPLIED_SCOPES`` in the backend's mcp_server/scopes.py: reading
+// or sending mail always comes with seeing which mailboxes are linked.
+const IMPLIED_SCOPES: Record<string, string[]> = {
+  "email:read": ["email:accounts:read"],
+  "email:write": ["email:accounts:read"],
+};
+
+const impliedBy = (scope: string, kept: Set<string>) =>
+  [...kept].find((other) => IMPLIED_SCOPES[other]?.includes(scope));
 
 const readError = async (response: Response, fallback: string) => {
   const payload = (await response.json().catch(() => null)) as {
@@ -55,7 +66,27 @@ export default function OAuthConsent() {
   const [request, setRequest] = useState<AuthorizationRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Everything requested starts ticked; unticking narrows the grant.
+  const [kept, setKept] = useState<Set<string>>(new Set());
   const account = getAuthenticatedUserProfile();
+
+  // A scope another kept scope implies is granted either way, so it shows as
+  // kept and is sent with the rest.
+  const granted = useMemo(
+    () =>
+      (request?.scopes ?? []).filter(
+        (scope) => kept.has(scope) || impliedBy(scope, kept) !== undefined,
+      ),
+    [request, kept],
+  );
+
+  const toggle = (scope: string) =>
+    setKept((current) => {
+      const next = new Set(current);
+      if (next.has(scope)) next.delete(scope);
+      else next.add(scope);
+      return next;
+    });
 
   useEffect(() => {
     if (!requestId) {
@@ -75,7 +106,9 @@ export default function OAuthConsent() {
             await readError(response, "This authorization request is invalid."),
           );
         }
-        setRequest((await response.json()) as AuthorizationRequest);
+        const loaded = (await response.json()) as AuthorizationRequest;
+        setRequest(loaded);
+        setKept(new Set(loaded.scopes));
       })
       .catch((loadError: unknown) => {
         setError(
@@ -97,7 +130,9 @@ export default function OAuthConsent() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ approve }),
+          body: JSON.stringify(
+            approve ? { approve, scopes: granted } : { approve },
+          ),
         },
         { includeWorkspaceHeaders: false },
       );
@@ -151,14 +186,48 @@ export default function OAuthConsent() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 text-sm">
-              <div>
-                <p className="mb-2 font-medium">It will be able to:</p>
-                <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-                  {request.scopes.map((scope) => (
-                    <li key={scope}>{SCOPE_LABELS[scope] ?? scope}</li>
-                  ))}
+              <fieldset>
+                <legend className="mb-1 font-medium">
+                  Choose what it can do:
+                </legend>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Untick anything you don't want to allow. Tools that need an
+                  unticked permission are hidden from {clientName}; to allow one
+                  later, remove the connector and add it again.
+                </p>
+                <ul className="space-y-2">
+                  {request.scopes.map((scope) => {
+                    const implier = impliedBy(scope, kept);
+                    const label = SCOPE_LABELS[scope];
+                    return (
+                      <li key={scope}>
+                        <label className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+                            checked={granted.includes(scope)}
+                            disabled={submitting || implier !== undefined}
+                            onChange={() => toggle(scope)}
+                          />
+                          <span className="flex flex-col">
+                            <span>{label ?? scope}</span>
+                            {label ? (
+                              <span className="font-mono text-xs text-muted-foreground">
+                                {scope}
+                              </span>
+                            ) : null}
+                            {implier ? (
+                              <span className="text-xs text-muted-foreground">
+                                Included with {implier}
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
                 </ul>
-              </div>
+              </fieldset>
               <p className="text-muted-foreground">
                 Approving sends you back to{" "}
                 <span className="font-medium text-foreground">
@@ -176,7 +245,10 @@ export default function OAuthConsent() {
               >
                 Deny
               </Button>
-              <Button disabled={submitting} onClick={() => void decide(true)}>
+              <Button
+                disabled={submitting || granted.length === 0}
+                onClick={() => void decide(true)}
+              >
                 {submitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (

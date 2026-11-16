@@ -47,8 +47,10 @@ For clients configured through JSON (Claude Desktop, Cursor, and similar):
 
 On first use the client opens your browser on Studio. Sign in with the code
 emailed to you if you are not signed in already, then approve the client on
-the consent screen. The client receives its own tokens and refreshes them
-without asking again, until you sign out everywhere or the grant is revoked.
+the consent screen, which lists every permission the client asked for. Untick
+any you don't want to allow; the client's tools that need one are then hidden
+from it. The client receives its own tokens and refreshes them without asking
+again, until you sign out everywhere or the grant is revoked.
 
 For a local backend started with `make dev-server`, use
 `http://localhost:2025/api/mcp`. When authentication is disabled no sign-in
@@ -80,7 +82,11 @@ a FastMCP `OAuthProvider` on top of the first-party passwordless login:
    registers itself through dynamic client registration (`/api/oauth/register`).
 3. The authorize endpoint (`/api/oauth/authorize`, PKCE `S256` required) sends
    the browser to Studio's `/oauth/consent` page. The user signs in there with
-   the emailed code if needed, then approves the client.
+   the emailed code if needed, then approves the client, optionally unticking
+   some of the requested scopes. The decision
+   (`POST /api/oauth/requests/{id}/decision`) carries the scopes kept; it can
+   only narrow the request, must keep at least one scope, and the token
+   response's `scope` names what was granted.
 4. The client exchanges the single-use code at `/api/oauth/token` for an access
    token and a refresh token. Access tokens are the same short-lived tokens
    Studio uses, limited to the scopes the client was granted. Refresh tokens
@@ -119,13 +125,13 @@ evaluator definitions can load Python entrypoints. Node execution requires
 and forms require `workflows:write`. Candidate installation and updates require
 `workflows:write`, while catalog reads require `workflows:read`.
 
-MCP client registrations retain workflow and vault access and add
-`workspaces:read`, `admin:tokens:read` and `email:accounts:read`, so a client
-that names no scopes can discover which mailboxes are linked and tell you what
-it still needs. Reading mail is not part of that: `email:read`, `email:write`,
-`workspaces:write` and `admin:tokens:write` must be requested explicitly and
-approved by the user. Studio and CLI login/refresh tokens use the narrower
-defaults and are granted no email scope at all. First-party operations still
+Tools are not gated by default yet: an MCP client that registers without
+naming scopes requests every scope above, so it sees every tool unless the user
+unticks some on the consent page. A client that names its own scopes requests
+only those, and the consent page lists exactly what was requested. A scope
+another one implies (`email:accounts:read` under `email:read` or `email:write`)
+stays ticked while the implying scope is. Studio and CLI login/refresh tokens use narrower defaults
+and are granted no email scope at all. First-party operations still
 follow the API's existing workspace authorization; service token creation
 cannot delegate scopes absent from the caller's token, and the implications
 above are applied when a tool is checked, not written into the stored grant.
@@ -133,14 +139,15 @@ above are applied when a tool is checked, not written into the stored grant.
 Existing OAuth grants do not gain new scopes automatically, and a scope a
 client never asks for is never granted. What a client receives is the scope it
 names on the authorization request; when it names none, the scope recorded at
-registration is used instead. So a client registered before
-`email:accounts:read` became a default does not pick it up by reconnecting —
+registration is used instead. So a client registered before the default
+grant widened to every scope does not pick up the new scopes by reconnecting —
 remove the connector and add it again, which registers it afresh with the
-current defaults. A client that does name its scopes needs nothing more than a
-reconnect, whenever it registered, and `email:read` and `email:write` always
-have to be named. The consent page lists exactly what was requested, so it
-shows which case a client is in. Workspace roles still apply; a grant does not
-turn an editor into an administrator.
+current defaults. The same goes for a scope the user unticked: refreshing never
+widens a grant, so remove the connector, add it again and keep that scope
+ticked. A client that names its scopes gets a new one by asking for it on its
+next authorization, whenever it registered. The consent page lists exactly
+what was requested, so it shows which case a client is in. Workspace
+roles still apply; a grant does not turn an editor into an administrator.
 
 The component catalog, workspace discovery (`list_my_workspaces` and
 `get_active_workspace`) and server-info tools need no scope. Service
@@ -236,9 +243,9 @@ tools use the credentials internally to connect to mail servers and never
 return them. The form flow sits behind `email:write` end to end — opening it,
 loading a mailbox's settings, saving, testing and removing — so a client
 granted mailbox management needs no mail-reading scope to use it. `email:read`
-and `email:write` are separate, opt-in OAuth scopes; only
-`email:accounts:read`, which lists linked mailboxes without reading any mail,
-is part of a default client registration.
+and `email:write` are separate OAuth scopes, both part of a default client
+registration; a client that names its own scopes can take
+`email:accounts:read` alone to list linked mailboxes without reading any mail.
 Linked mailboxes and scheduled mail are shared across the active workspace.
 Members can use them through the email tools their client is authorized to call.
 The generic vault API cannot reveal or modify email tool credentials.

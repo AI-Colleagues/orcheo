@@ -47,7 +47,8 @@ only the user can reveal a newly created token in the App. \
 show_workflow_diagram renders a workflow's graph. Use get_execution_history \
 for recorded steps, validate_workflow_credentials for provider checks, and \
 open_webhook_form for webhook secrets. Email tools use mailbox credentials \
-stored in the Orcheo vault; approve email:read or email:write only when needed."""
+stored in the Orcheo vault. To link or change a mailbox, call \
+open_email_settings: the user enters its passwords in a form you never see."""
 
 
 def mcp_enabled() -> bool:
