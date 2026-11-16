@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
@@ -79,6 +79,10 @@ class RegisteredClient(OAuthClientInformationFull):
         return requested
 
 
+class ScopeSelectionError(ValueError):
+    """The scopes a user kept on the consent page are not a valid grant."""
+
+
 class OrcheoAuthorizationCode(AuthorizationCode):
     """Authorization code carrying the approving user and its request record."""
 
@@ -108,6 +112,26 @@ def _to_token(tokens: IssuedTokens, scopes: list[str]) -> OAuthToken:
         refresh_token=tokens.refresh_token,
         scope=" ".join(scopes),
     )
+
+
+def _kept_scopes(requested: Sequence[str], kept: Sequence[str]) -> list[str]:
+    """Return the requested scopes the user kept, in the requested order.
+
+    The consent page can only narrow a request: a scope the client never asked
+    for is refused rather than silently granted, and keeping nothing is
+    refused rather than issuing a token that can do nothing.
+    """
+    extra = sorted(set(kept) - set(requested))
+    if extra:
+        raise ScopeSelectionError(
+            f"The application did not request these scopes: {', '.join(extra)}."
+        )
+    granted = [scope for scope in requested if scope in set(kept)]
+    if not granted:
+        raise ScopeSelectionError(
+            "Keep at least one permission, or deny the application instead."
+        )
+    return granted
 
 
 class OrcheoOAuthProvider(OAuthProvider):
@@ -248,18 +272,38 @@ class OrcheoOAuthProvider(OAuthProvider):
             return None
         return request, client
 
-    async def decide(self, request_id: str, *, user_id: UUID, approve: bool) -> str:
+    async def decide(
+        self,
+        request_id: str,
+        *,
+        user_id: UUID,
+        approve: bool,
+        scopes: Sequence[str] | None = None,
+    ) -> str:
         """Record the user's consent decision and return the client redirect.
+
+        Args:
+            request_id: The pending authorization request.
+            user_id: The signed-in user deciding it.
+            approve: Whether the user approved the client.
+            scopes: The requested scopes the user kept ticked on the consent
+                page; ``None`` grants everything requested. The code, and so
+                the tokens, carry only these, and the token response says so.
 
         Raises:
             OAuthAuthorizationRequestNotFoundError: If the request is unknown,
                 expired or already decided.
+            ScopeSelectionError: If an approval keeps a scope the client did
+                not request, or none of the ones it did.
         """
         pending = await self.pending_request(request_id)
         if pending is None:
             raise OAuthAuthorizationRequestNotFoundError(request_id)
         request, _ = pending
         now = self._clock()
+        granted = request.scopes
+        if approve and scopes is not None:
+            granted = _kept_scopes(request.scopes, scopes)
         if not approve:
             await run_in_threadpool(
                 self._repository.update_authorization_request,
@@ -276,6 +320,7 @@ class OrcheoOAuthProvider(OAuthProvider):
             self._repository.update_authorization_request,
             request.model_copy(
                 update={
+                    "scopes": granted,
                     "decided_at": now,
                     "user_id": user_id,
                     "code_hash": hash_secret(code),
@@ -410,5 +455,6 @@ __all__ = [
     "AUTHORIZATION_REQUEST_TTL",
     "OrcheoAuthorizationCode",
     "OrcheoOAuthProvider",
+    "ScopeSelectionError",
     "derive_client_secret",
 ]

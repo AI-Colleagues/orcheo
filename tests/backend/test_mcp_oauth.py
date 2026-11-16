@@ -25,6 +25,7 @@ from orcheo_backend.app.identity import (
 )
 from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES, mint_access_token
 from orcheo_backend.app.mcp_server import mcp_lifespan
+from orcheo_backend.app.oauth.urls import SUPPORTED_SCOPES
 from tests.backend.api.mcp_support import MCP_HEADERS
 from tests.backend.authentication_test_utils import create_test_client
 
@@ -97,7 +98,13 @@ class OAuthHarness:
             },
         )
 
-    async def consent(self, location: str, *, approve: bool = True) -> str:
+    async def consent(
+        self,
+        location: str,
+        *,
+        approve: bool = True,
+        scopes: list[str] | None = None,
+    ) -> str:
         request_id = parse_qs(urlparse(location).query)["request"][0]
         headers = {"Authorization": f"Bearer {self.studio_token()}"}
         view = await self.client.get(
@@ -106,20 +113,32 @@ class OAuthHarness:
         assert view.status_code == 200, view.text
         assert view.json()["client_name"] == "Claude Code"
         assert view.json()["redirect_host"] == "127.0.0.1:33418"
+        body: dict[str, object] = {"approve": approve}
+        if scopes is not None:
+            body["scopes"] = scopes
         decision = await self.client.post(
             f"/api/oauth/requests/{request_id}/decision",
-            json={"approve": approve},
+            json=body,
             headers=headers,
         )
         assert decision.status_code == 200, decision.text
         return decision.json()["redirect_url"]
 
-    async def authorize(self, client_id: str, verifier: str, **params: str) -> str:
+    async def authorize(
+        self,
+        client_id: str,
+        verifier: str,
+        *,
+        consent_scopes: list[str] | None = None,
+        **params: str,
+    ) -> str:
         started = await self.start(
             client_id, verifier, resource=f"{ORIGIN}/api/mcp", **params
         )
         assert started.status_code == 302
-        redirect = await self.consent(started.headers["location"])
+        redirect = await self.consent(
+            started.headers["location"], scopes=consent_scopes
+        )
         query = parse_qs(urlparse(redirect).query)
         assert query["state"] == ["state-123"]
         return query["code"][0]
@@ -127,13 +146,17 @@ class OAuthHarness:
     async def token(self, **form: str) -> httpx.Response:
         return await self.client.post("/api/oauth/token", data=form)
 
-    async def grant(self, **params: str) -> dict:
+    async def grant(
+        self, *, consent_scopes: list[str] | None = None, **params: str
+    ) -> dict:
         """Run the whole flow for a new client and return its tokens."""
         client = await self.register(
             **({"scope": params["scope"]} if "scope" in params else {})
         )
         verifier = _verifier()
-        code = await self.authorize(client["client_id"], verifier, **params)
+        code = await self.authorize(
+            client["client_id"], verifier, consent_scopes=consent_scopes, **params
+        )
         issued = await self.token(
             grant_type="authorization_code",
             code=code,
@@ -250,7 +273,11 @@ async def test_full_flow_grants_a_token_the_mcp_server_accepts(
             "vault:write",
             "workspaces:read",
             "admin:tokens:read",
+            "workspaces:write",
+            "admin:tokens:write",
             "email:accounts:read",
+            "email:read",
+            "email:write",
         ]
         verifier = _verifier()
         code = await oauth.authorize(client["client_id"], verifier)
@@ -414,6 +441,90 @@ async def test_denied_consent_redirects_with_error(
         assert query["state"] == ["state-123"]
         assert again.status_code == 404
         assert missing.status_code == 404
+
+
+@pytest.mark.asyncio()
+async def test_consent_grants_only_the_scopes_the_user_kept(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    """Unticked scopes leave the grant, its tokens and the tools it lists."""
+    async with oauth_session(oauth_env) as oauth:
+        client = await oauth.register()
+        verifier = _verifier()
+        started = await oauth.start(
+            client["client_id"], verifier, resource=f"{ORIGIN}/api/mcp"
+        )
+        # Out of request order, to show the grant keeps the requested order.
+        redirect = await oauth.consent(
+            started.headers["location"], scopes=["email:read", "workflows:read"]
+        )
+        code = parse_qs(urlparse(redirect).query)["code"][0]
+        issued = await oauth.token(
+            grant_type="authorization_code",
+            code=code,
+            redirect_uri=REDIRECT_URI,
+            client_id=client["client_id"],
+            code_verifier=verifier,
+        )
+        assert issued.status_code == 200, issued.text
+        tokens = issued.json()
+        widened = await oauth.token(
+            grant_type="refresh_token",
+            refresh_token=tokens["refresh_token"],
+            client_id=client["client_id"],
+            scope="workflows:read workflows:write",
+        )
+        listed = await _mcp(
+            oauth.client, "tools/list", {}, token=tokens["access_token"]
+        )
+        names = {tool["name"] for tool in listed.json()["result"]["tools"]}
+
+        assert tokens["scope"] == "workflows:read email:read"
+        assert widened.status_code == 400
+        assert widened.json()["error"] == "invalid_scope"
+        # email:read brings the mailbox listing with it.
+        assert {"list_workflows", "search_emails", "list_email_accounts"} <= names
+        assert names.isdisjoint(
+            {"upload_workflow", "open_email_settings", "create_workspace"}
+        )
+
+
+@pytest.mark.asyncio()
+async def test_consent_can_only_narrow_the_request(
+    oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+) -> None:
+    async with oauth_session(oauth_env) as oauth:
+        client = await oauth.register()
+        started = await oauth.start(
+            client["client_id"], _verifier(), scope="workflows:read"
+        )
+        request_id = parse_qs(urlparse(started.headers["location"]).query)["request"][0]
+        headers = {"Authorization": f"Bearer {oauth.studio_token()}"}
+        url = f"/api/oauth/requests/{request_id}/decision"
+
+        wider = await oauth.client.post(
+            url,
+            json={"approve": True, "scopes": ["workflows:read", "vault:write"]},
+            headers=headers,
+        )
+        nothing = await oauth.client.post(
+            url, json={"approve": True, "scopes": []}, headers=headers
+        )
+        # A refused selection leaves the request pending, so the user can
+        # still approve or deny it.
+        still_pending = await oauth.client.get(
+            f"/api/oauth/requests/{request_id}", headers=headers
+        )
+        denied = await oauth.consent(
+            started.headers["location"], approve=False, scopes=[]
+        )
+
+        assert wider.status_code == 400
+        assert "vault:write" in wider.json()["detail"]
+        assert nothing.status_code == 400
+        assert "at least one" in nothing.json()["detail"]
+        assert still_pending.status_code == 200
+        assert parse_qs(urlparse(denied).query)["error"] == ["access_denied"]
 
 
 @pytest.mark.asyncio()
@@ -768,20 +879,27 @@ async def test_service_token_form_binds_oauth_client_and_limits_minted_scopes(
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize("explicit_scope", [False, True])
+@pytest.mark.parametrize("by_default", [True, False])
 @pytest.mark.parametrize(
     ("scope", "tool"),
     [
         ("workspaces:write", "create_workspace"),
         ("admin:tokens:write", "open_service_token_form"),
+        ("email:read", "search_emails"),
+        ("email:write", "open_email_settings"),
     ],
 )
-async def test_mutating_capabilities_require_explicit_client_scope(
+async def test_default_registration_grants_what_named_scopes_leave_out(
     oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
-    explicit_scope: bool,
+    by_default: bool,
     scope: str,
     tool: str,
 ) -> None:
+    """A client naming no scopes gets every capability; one naming its own does not.
+
+    The scope follows the grant through consent, the token, the tool list and
+    refresh, and a tool outside the grant is refused when called.
+    """
     async with oauth_session(oauth_env) as oauth:
         from orcheo_backend.app.identity.tokens import DEFAULT_USER_SCOPES
 
@@ -790,9 +908,7 @@ async def test_mutating_capabilities_require_explicit_client_scope(
             await oauth.client.get("/.well-known/oauth-authorization-server/api/oauth")
         ).json()
         assert scope in metadata["scopes_supported"]
-        registration = (
-            {"scope": " ".join((*DEFAULT_USER_SCOPES, scope))} if explicit_scope else {}
-        )
+        registration = {} if by_default else {"scope": " ".join(DEFAULT_USER_SCOPES)}
         client = await oauth.register(**registration)
         verifier = _verifier()
         started = await oauth.start(client["client_id"], verifier)
@@ -802,7 +918,7 @@ async def test_mutating_capabilities_require_explicit_client_scope(
             f"/api/oauth/requests/{request_id}",
             headers={"Authorization": f"Bearer {oauth.studio_token()}"},
         )
-        assert (scope in consent.json()["scopes"]) is explicit_scope
+        assert (scope in consent.json()["scopes"]) is by_default
         redirect = await oauth.consent(started.headers["location"])
         code = parse_qs(urlparse(redirect).query)["code"][0]
         issued = await oauth.token(
@@ -813,20 +929,20 @@ async def test_mutating_capabilities_require_explicit_client_scope(
             code_verifier=verifier,
         )
         assert issued.status_code == 200, issued.text
-        assert (scope in issued.json()["scope"].split()) is explicit_scope
+        assert (scope in issued.json()["scope"].split()) is by_default
         result = await _mcp(
             oauth.client, "tools/list", {}, issued.json()["access_token"]
         )
         names = {tool["name"] for tool in result.json()["result"]["tools"]}
-        assert (tool in names) is explicit_scope
+        assert (tool in names) is by_default
         refreshed = await oauth.token(
             grant_type="refresh_token",
             refresh_token=issued.json()["refresh_token"],
             client_id=client["client_id"],
         )
         assert refreshed.status_code == 200, refreshed.text
-        assert (scope in refreshed.json()["scope"].split()) is explicit_scope
-        if not explicit_scope:
+        assert (scope in refreshed.json()["scope"].split()) is by_default
+        if not by_default:
             denied = await _mcp(
                 oauth.client,
                 "tools/call",
@@ -905,25 +1021,33 @@ async def test_authorization_refuses_scopes_the_server_does_not_support(
 
 
 @pytest.mark.asyncio()
-async def test_default_registration_grants_mailbox_listing_only(
+@pytest.mark.parametrize(
+    "consent_scopes",
+    [None, list(SUPPORTED_SCOPES)],
+    ids=["decision-without-scopes", "every-scope-ticked"],
+)
+async def test_default_registration_grants_every_tool(
     oauth_env: tuple[FastAPI, InMemoryIdentityRepository],
+    consent_scopes: list[str] | None,
 ) -> None:
-    """A client that never names a scope sees its mailboxes and nothing else.
+    """A client that never names a scope sees what an unrestricted caller sees.
 
-    Asserted as the exact set of email tools, so widening the default scope
-    later fails here instead of quietly exposing mail.
+    Tools are not gated by default yet, so a default grant carries every
+    supported scope and hides nothing, the mailbox settings form included.
+    Approving with every box on the consent page ticked, which is how Studio
+    sends it, grants the same.
     """
     async with oauth_session(oauth_env) as oauth:
-        issued = await oauth.grant()
+        issued = await oauth.grant(consent_scopes=consent_scopes)
 
-        granted = issued["scope"].split()
-        assert "email:accounts:read" in granted
-        # Reading mail and writing mailbox passwords stay behind a request.
-        assert "email:read" not in granted
-        assert "email:write" not in granted
-        result = await _mcp(oauth.client, "tools/list", {}, issued["access_token"])
-        names = {item["name"] for item in result.json()["result"]["tools"]}
-        assert {name for name in names if "mail" in name} == {"list_email_accounts"}
+        assert issued["scope"].split() == list(SUPPORTED_SCOPES)
+        granted = await _mcp(oauth.client, "tools/list", {}, issued["access_token"])
+        unrestricted = await _mcp(oauth.client, "tools/list", {}, oauth.studio_token())
+        names = {item["name"] for item in granted.json()["result"]["tools"]}
+        assert names == {
+            item["name"] for item in unrestricted.json()["result"]["tools"]
+        }
+        assert {"open_email_settings", "search_emails", "send_email"} <= names
 
 
 @pytest.mark.asyncio()
@@ -951,7 +1075,7 @@ async def test_calling_a_mail_tool_without_email_read_is_refused(
 ) -> None:
     """Hiding a mail tool is not enough; calling it is refused as well."""
     async with oauth_session(oauth_env) as oauth:
-        issued = await oauth.grant()
+        issued = await oauth.grant(scope=" ".join(DEFAULT_USER_SCOPES))
 
         result = await _mcp(
             oauth.client,
@@ -963,10 +1087,10 @@ async def test_calling_a_mail_tool_without_email_read_is_refused(
         payload = result.json()["result"]
         assert payload["isError"] is True
         assert "was not granted email:read, which 'search_emails' needs" in str(payload)
-        # email:read is not part of a default registration, so the remedy is
-        # the client requesting it, not reconnecting what is already there.
-        assert "only the scopes it requests" in str(payload)
-        assert "Reconnect it and approve that access" not in str(payload)
+        # email:read is part of a default registration, so registering afresh
+        # picks it up.
+        assert "remove the connector and add it again" in str(payload)
+        assert "only the scopes it requests" not in str(payload)
 
 
 @pytest.mark.asyncio()
@@ -975,8 +1099,8 @@ async def test_registration_recorded_before_a_default_changed_is_not_widened(
 ) -> None:
     """A stored registration is the default; reconnecting does not widen it.
 
-    This is why a connector added before ``email:accounts:read`` became a
-    default has to be removed and added again rather than merely reconnected.
+    This is why a connector added before the default grant widened has to be
+    removed and added again rather than merely reconnected.
     """
     async with oauth_session(oauth_env) as oauth:
         client = await oauth.register(scope=" ".join(DEFAULT_USER_SCOPES))
@@ -998,3 +1122,4 @@ async def test_registration_recorded_before_a_default_changed_is_not_widened(
         )
         names = {item["name"] for item in result.json()["result"]["tools"]}
         assert "list_email_accounts" not in names
+        assert "open_email_settings" not in names

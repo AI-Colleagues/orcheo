@@ -31,7 +31,11 @@ from orcheo_backend.app.identity.dependencies import (
     get_identity_service,
 )
 from orcheo_backend.app.identity.service import IdentityService
-from orcheo_backend.app.oauth.provider import OrcheoOAuthProvider, client_id_of
+from orcheo_backend.app.oauth.provider import (
+    OrcheoOAuthProvider,
+    ScopeSelectionError,
+    client_id_of,
+)
 from orcheo_backend.app.oauth.urls import (
     MCP_RESOURCE_PATH,
     OAUTH_PREFIX,
@@ -139,6 +143,8 @@ class AuthorizationDecision(BaseModel):
     """The user's answer on the consent screen."""
 
     approve: bool
+    # The requested scopes the user left ticked; omitted grants all of them.
+    scopes: list[str] | None = None
 
 
 class AuthorizationDecisionResponse(BaseModel):
@@ -214,14 +220,22 @@ async def decide_authorization_request(
     provider: ProviderDep,
     auth: Annotated[RequestContext, Depends(authenticate_request)],
 ) -> AuthorizationDecisionResponse:
-    """Approve or deny a pending request as the signed-in user."""
+    """Approve or deny a pending request as the signed-in user.
+
+    An approval may untick some of the requested scopes; the client is then
+    granted only the rest.
+    """
     user_id = _consenting_user(auth)
     try:
         redirect_url = await provider.decide(
-            request_id, user_id=user_id, approve=body.approve
+            request_id, user_id=user_id, approve=body.approve, scopes=body.scopes
         )
     except OAuthAuthorizationRequestNotFoundError as exc:
         raise _request_gone() from exc
+    except ScopeSelectionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     return AuthorizationDecisionResponse(redirect_url=redirect_url)
 
 

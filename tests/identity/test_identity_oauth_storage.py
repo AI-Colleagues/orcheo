@@ -115,9 +115,10 @@ def test_postgres_oauth_clients(pg: tuple[FakeConnection, Any]) -> None:
 def test_postgres_authorization_requests(pg: tuple[FakeConnection, Any]) -> None:
     connection, repo = pg
     user_id = uuid4()
-    pending = _request()
+    pending = _request(scopes=["workflows:read", "vault:read"])
     approved = pending.model_copy(
         update={
+            "scopes": ["workflows:read"],
             "user_id": user_id,
             "decided_at": NOW,
             "code_hash": "hash",
@@ -153,6 +154,14 @@ def test_postgres_authorization_requests(pg: tuple[FakeConnection, Any]) -> None
         if query.startswith("INSERT INTO oauth_authorization_requests")
     )
     assert insert_params[10] is None  # no user until consent
+    # The scopes the user kept on the consent page are saved with the decision.
+    update_params = next(
+        params
+        for query, params in connection.queries
+        if query.lstrip().startswith("UPDATE oauth_authorization_requests")
+        and "SET scopes" in query
+    )
+    assert update_params[0].obj == ["workflows:read"]
 
 
 def test_postgres_sessions_persist_oauth_grant(pg: tuple[FakeConnection, Any]) -> None:

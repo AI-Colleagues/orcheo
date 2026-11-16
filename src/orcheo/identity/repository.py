@@ -127,6 +127,9 @@ class IdentityRepository(Protocol):
     ) -> OAuthAuthorizationRequest:
         """Persist the user's decision on a still-undecided authorization request.
 
+        The decision includes ``scopes``, which an approval may have narrowed
+        to the ones the user kept.
+
         Raises:
             OAuthAuthorizationRequestNotFoundError: If the request is unknown
                 or already decided.

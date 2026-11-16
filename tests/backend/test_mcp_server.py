@@ -253,16 +253,31 @@ def test_broader_email_scopes_subsume_mailbox_listing() -> None:
     assert expand_scopes(frozenset()) == frozenset()
 
 
-def test_a_refused_tool_says_how_the_scope_is_actually_granted() -> None:
+def test_a_refused_tool_says_how_the_scope_is_actually_granted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The advice has to be the remedy that works for the scope in question.
 
     A client is granted the scopes it names, or its registration scope when it
     names none, so "reconnect it" is wrong for a scope the client never asks
     for and right only for one a fresh registration now carries.
     """
-    from orcheo_backend.app.mcp_server.scopes import _how_to_grant
+    from orcheo_backend.app.mcp_server import scopes
+    from orcheo_backend.app.oauth.urls import SUPPORTED_SCOPES
 
-    # Outside a default registration: only the client requesting it helps.
+    _how_to_grant = scopes._how_to_grant
+    # Every supported scope is a default today, so registering afresh is the
+    # remedy for any of them.
+    for scope in SUPPORTED_SCOPES:
+        advice = _how_to_grant(frozenset({scope}))
+        assert "remove the connector and add it again" in advice
+        # The user may have unticked it on the consent page.
+        assert "keeping it ticked" in advice
+        assert "only the scopes it requests" not in advice
+
+    # Should a scope leave the default again, only the client requesting it
+    # helps.
+    monkeypatch.setattr(scopes, "_DEFAULT_SCOPES", frozenset({"email:accounts:read"}))
     requestable = _how_to_grant(frozenset({"email:read"}))
     assert "only the scopes it requests" in requestable
     assert "reconnecting it changes nothing on its own" in requestable
@@ -277,7 +292,7 @@ def test_a_refused_tool_says_how_the_scope_is_actually_granted() -> None:
     # Both kinds at once: each scope is named with the advice that applies.
     mixed = _how_to_grant(frozenset({"email:read", "email:accounts:read"}))
     assert "ask for email:read" in mixed
-    assert "default registration now includes email:accounts:read" in mixed
+    assert "default registration includes email:accounts:read" in mixed
 
 
 @pytest.mark.asyncio()
