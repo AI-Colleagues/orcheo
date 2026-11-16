@@ -10,15 +10,15 @@
       :root[data-theme="dark"] { --bg:#1c1c1e; --fg:#f1f1f1; --muted:#a0a0a5; --border:#3a3a3c; --field:#2c2c2e; --accent:#748ffc; --accent-fg:#0b0b0b; --danger:#ff8787; --success:#8ce99a; }
       * { box-sizing:border-box; } body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
       h1 { font-size:17px; margin:0 0 4px; } h2 { font-size:14px; margin:14px 0 4px; } p.hint { color:var(--muted); margin:0 0 14px; }
-      #layout { display:grid; gap:12px; max-width:700px; } #selector { display:flex; gap:8px; }
+      #layout { display:grid; gap:12px; max-width:700px; } [hidden] { display:none !important; }
       label { display:grid; gap:4px; font-weight:500; } label span.note { color:var(--muted); font-weight:400; font-size:12px; }
       input,select,textarea { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--field); color:var(--fg); font:inherit; }
       textarea { min-height:70px; resize:vertical; } .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; } .wide { grid-column:1/-1; }
-      .actions { display:flex; flex-wrap:wrap; gap:8px; } button { padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--field); color:var(--fg); font:inherit; cursor:pointer; }
+      .actions { display:flex; flex-wrap:wrap; gap:8px; } .actions .danger { margin-left:auto; } button { padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--field); color:var(--fg); font:inherit; cursor:pointer; }
       button.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); font-weight:600; } button.danger { color:var(--danger); } button:disabled { opacity:.6; cursor:default; }
       #status { min-height:20px; margin:0; } #status.error { color:var(--danger); } #status.success { color:var(--success); }
-      .checks { display:flex; gap:18px; align-items:center; } .checks label { display:flex; align-items:center; gap:7px; font-weight:400; } .checks input { width:auto; }
-      @media(max-width:520px) { .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } }
+      .checks { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; } .checks label { display:flex; align-items:center; gap:7px; font-weight:400; white-space:nowrap; } .checks input { width:auto; }
+      @media(max-width:520px) { .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } .actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); } .actions .primary { grid-column:1/-1; } .actions .danger { margin-left:0; } }
     </style>
   </head>
   <body>
@@ -27,12 +27,9 @@
         <h1>Email accounts</h1>
         <p class="hint">Mailbox server settings and passwords are saved as encrypted credentials in your Orcheo vault.</p>
       </div>
-      <div id="selector">
-        <label style="flex:1">Linked mailbox
-          <select id="account-select"><option value="">Add a mailbox</option></select>
-        </label>
-        <button id="new-account" type="button" disabled>Add mailbox</button>
-      </div>
+      <label id="picker" hidden>Mailbox
+        <select id="account-select"></select>
+      </label>
       <div class="grid">
         <label>Display name<input id="display-name" maxlength="100" /></label>
         <label>Email address<input id="email-address" type="email" maxlength="320" /></label>
@@ -59,9 +56,9 @@
         <label class="wide">Signature<textarea id="signature" maxlength="2000"></textarea></label>
       </div>
       <div class="actions">
-        <button class="primary" id="save" type="button" disabled>Save mailbox</button>
-        <button id="test" type="button" disabled>Test IMAP and SMTP</button>
-        <button class="danger" id="delete" type="button" disabled>Remove mailbox</button>
+        <button class="primary" id="save" type="button" disabled>Add mailbox</button>
+        <button id="test" type="button" hidden disabled>Test connection</button>
+        <button class="danger" id="delete" type="button" hidden disabled>Remove mailbox</button>
       </div>
       <p id="status" role="status"></p>
     </div>
@@ -90,7 +87,16 @@
         if (result.isError) throw new Error(result.content?.[0]?.text || "Email account operation failed.");
         return result.structuredContent || {};
       };
-      const selected = () => accounts.find((item) => item.account_id === $("account-select").value);
+      const NEW_MAILBOX = "";
+      const mailboxLabel = (item) => `${item.display_name} · ${item.email_address}${item.is_default ? " · default" : ""}`;
+      // Saved mailboxes first, then the way to add another. With nothing saved
+      // the form itself is the new mailbox, so a one-option picker is hidden.
+      const renderPicker = (accountId) => {
+        const select = $("account-select");
+        select.replaceChildren(...accounts.map((item) => new Option(mailboxLabel(item), item.account_id)), new Option("Add another mailbox…", NEW_MAILBOX));
+        select.value = accounts.some((item) => item.account_id === accountId) ? accountId : NEW_MAILBOX;
+        $("picker").hidden = accounts.length === 0;
+      };
       const showAccount = (account) => {
         const imap = account?.imap || {};
         const smtp = account?.smtp || {};
@@ -109,8 +115,8 @@
         $("imap-password").value = ""; $("smtp-password").value = "";
         $("imap-password").placeholder = account ? "Leave blank to keep the saved password" : "Required";
         $("smtp-password").placeholder = account ? "Leave blank to keep the saved password" : "Required";
-        $("delete").disabled = !account;
-        $("test").disabled = !account;
+        $("save").textContent = account ? "Save changes" : "Add mailbox";
+        for (const id of ["test", "delete"]) { $(id).hidden = !account; $(id).disabled = !account; }
       };
       const loadSettings = async (accountId) => {
         if (!accountId) { showAccount(null); return; }
@@ -125,23 +131,16 @@
         const meta = result._meta || {};
         form = { token: meta["orcheo/formToken"] };
         accounts = data.accounts || [];
-        const select = $("account-select");
-        select.replaceChildren(new Option("Add a mailbox", ""));
-        accounts.forEach((item) => select.add(new Option(`${item.display_name} · ${item.email_address}${item.is_default ? " · default" : ""}`, item.account_id)));
-        const requested = data.account_id || "";
-        select.value = accounts.some((item) => item.account_id === requested) ? requested : "";
         $("save").disabled = !form.token;
-        $("new-account").disabled = !form.token;
         if (!form.token) { unverified(); return; }
+        renderPicker(data.account_id || NEW_MAILBOX);
         setStatus("");
-        try { await loadSettings(select.value); } catch (error) { setStatus(error.message, "error"); }
+        try { await loadSettings($("account-select").value); } catch (error) { setStatus(error.message, "error"); }
       };
       $("account-select").addEventListener("change", async () => {
-        try { await loadSettings($("account-select").value); } catch (error) { setStatus(error.message, "error"); }
-      });
-      $("new-account").addEventListener("click", () => {
         if (!form?.token) return unverified();
-        $("account-select").value = ""; showAccount(null); setStatus("");
+        setStatus("");
+        try { await loadSettings($("account-select").value); } catch (error) { setStatus(error.message, "error"); }
       });
       $("save").addEventListener("click", async () => {
         if (!form?.token) return unverified();
@@ -161,9 +160,7 @@
           const account = result.account;
           accounts = accounts.filter((item) => item.account_id !== account.account_id);
           accounts.push({ account_id: account.account_id, display_name: account.display_name, email_address: account.email_address, labels: account.labels, is_default: account.is_default, enabled: account.enabled, save_sent_copy: account.save_sent_copy, has_signature: Boolean(account.signature_text), health: { imap: account.imap, smtp: account.smtp } });
-          const select = $("account-select"); select.replaceChildren(new Option("Add a mailbox", ""));
-          accounts.forEach((item) => select.add(new Option(`${item.display_name} · ${item.email_address}${item.is_default ? " · default" : ""}`, item.account_id)));
-          select.value = account.account_id; showAccount(account);
+          renderPicker(account.account_id); showAccount(account);
           $("imap-password").value = ""; $("smtp-password").value = "";
           setStatus("Mailbox settings saved in the Orcheo vault.", "success");
           await orcheoBridge.tellModel(`The user saved email account ${account.email_address} in the Orcheo vault.`);
@@ -188,9 +185,7 @@
         try {
           await call("delete_email_account", { form_token: form.token, account_id: activeAccountId });
           accounts = accounts.filter((item) => item.account_id !== activeAccountId);
-          const select = $("account-select"); select.replaceChildren(new Option("Add a mailbox", ""));
-          accounts.forEach((item) => select.add(new Option(`${item.display_name} · ${item.email_address}${item.is_default ? " · default" : ""}`, item.account_id)));
-          select.value = ""; showAccount(null); setStatus("Mailbox and vault credential removed.", "success");
+          renderPicker(NEW_MAILBOX); showAccount(null); setStatus("Mailbox and vault credential removed.", "success");
           await orcheoBridge.tellModel("The user removed an email account from the Orcheo vault.");
         } catch (error) { setStatus(error.message, "error"); }
         finally { $("delete").disabled = !activeAccountId; }
