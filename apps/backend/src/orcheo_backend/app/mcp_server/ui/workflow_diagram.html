@@ -66,20 +66,59 @@
     </script>
     <script type="module">
       const $ = (id) => document.getElementById(id);
-      let mermaid = null;
+      // The host sends the diagram in ui/notifications/tool-result, which it
+      // only has to do while the tool runs, so a restored view can receive
+      // nothing at all; say so instead of loading forever.
+      const DATA_TIMEOUT_MS = 8000;
+      // The source stays readable without the renderer, so a stalled CDN
+      // falls back to it rather than holding the diagram back.
+      const RENDERER_TIMEOUT_MS = 10000;
+      const MERMAID_URL =
+        "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      const REOPEN = "Ask the assistant to show it again.";
       let source = null;
       let theme = "default";
+      let delivered = false;
+
+      const setStatus = (text, kind = "") => {
+        $("status").textContent = text;
+        $("status").className = kind;
+      };
+
+      const stalled = setTimeout(() => {
+        if (!delivered) {
+          setStatus(`This diagram never received its data. ${REOPEN}`, "error");
+        }
+      }, DATA_TIMEOUT_MS);
+
+      const settle = () => {
+        delivered = true;
+        clearTimeout(stalled);
+      };
+
+      const fail = (reason) => {
+        if (delivered) return;
+        settle();
+        setStatus(`${reason} ${REOPEN}`, "error");
+      };
+
+      // Start loading the renderer now, but never make the handshake wait
+      // for it: the host only sends the diagram once the view has connected.
+      const renderer = Promise.race([
+        import(MERMAID_URL).then((module) => module.default),
+        new Promise((done) => setTimeout(() => done(null), RENDERER_TIMEOUT_MS)),
+      ]).catch(() => null);
 
       const showSource = (message) => {
         const pre = document.createElement("pre");
         pre.textContent = source || "";
         $("diagram").replaceChildren(pre);
-        $("status").textContent = message;
-        $("status").className = "error";
+        setStatus(message, "error");
       };
 
       const render = async () => {
         if (!source) return;
+        const mermaid = await renderer;
         if (!mermaid) {
           showSource("The diagram renderer could not be loaded; showing its source.");
           return;
@@ -88,37 +127,38 @@
           mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme });
           const { svg } = await mermaid.render(`graph-${Date.now()}`, source);
           $("diagram").innerHTML = svg;
-          $("status").textContent = "";
+          setStatus("");
         } catch (error) {
           showSource(`The diagram could not be rendered: ${error.message}`);
         }
       };
 
       orcheoBridge.on("ui/notifications/tool-result", (result) => {
+        settle();
         const data = result.structuredContent || {};
         $("name").textContent = data.name || "Workflow";
         $("version").textContent = data.version ? `v${data.version}` : "";
         source = data.mermaid;
         render();
       });
+      orcheoBridge.on("ui/notifications/tool-cancelled", () =>
+        fail("Showing this diagram was cancelled."),
+      );
       orcheoBridge.on("ui/notifications/host-context-changed", (context) => {
         if (!context.theme) return;
         theme = context.theme === "dark" ? "dark" : "default";
         render();
       });
 
-      try {
-        ({ default: mermaid } = await import(
-          "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
-        ));
-      } catch {
-        mermaid = null;
-      }
-      const init = await orcheoBridge.connect("orcheo-workflow-diagram");
-      if (init && init.hostContext && init.hostContext.theme === "dark") {
-        theme = "dark";
-      }
-      render();
+      orcheoBridge
+        .connect("orcheo-workflow-diagram")
+        .then((init) => {
+          if (init && init.hostContext && init.hostContext.theme === "dark") {
+            theme = "dark";
+            render();
+          }
+        })
+        .catch(() => fail("This diagram could not reach the app host."));
     </script>
   </body>
 </html>

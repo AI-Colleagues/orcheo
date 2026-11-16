@@ -36,7 +36,13 @@ const account = {
   enabled: true,
   save_sent_copy: true,
 };
-const actions = ["save", "new-account", "test", "delete"];
+const actions = ["save", "test", "delete"];
+const picker = () => element("picker");
+const select = () => element<HTMLSelectElement>("account-select");
+const options = () => [...select().options].map((option) => option.text);
+// Test and Remove only exist for a saved mailbox.
+const managing = () =>
+  ["test", "delete"].map((id) => !button(id).hidden && !button(id).disabled);
 
 // The host only has to send the tool result while the tool runs, and `_meta`
 // is what carries the token, so both can be missing on a restored view.
@@ -95,8 +101,44 @@ describe("email account form MCP App", () => {
     open();
 
     expect(button("save").disabled).toBe(false);
-    expect(button("new-account").disabled).toBe(false);
     expect(status()).toBe("");
+  });
+
+  it("shows a first mailbox as the form itself, with no picker", () => {
+    open();
+
+    expect(picker().hidden).toBe(true);
+    expect(button("save").textContent).toBe("Add mailbox");
+    expect(managing()).toEqual([false, false]);
+  });
+
+  it("lists saved mailboxes with a way to add another", async () => {
+    callTool.mockResolvedValueOnce({ structuredContent: { account } });
+    open(undefined, { accounts: [account], account_id: account.account_id });
+
+    await vi.waitFor(() =>
+      expect(button("save").textContent).toBe("Save changes"),
+    );
+    expect(picker().hidden).toBe(false);
+    expect(options()).toEqual([
+      "Work · me@example.com · default",
+      "Add another mailbox…",
+    ]);
+    expect(select().value).toBe(account.account_id);
+    expect(element<HTMLInputElement>("email-address").value).toBe(
+      account.email_address,
+    );
+    expect(managing()).toEqual([true, true]);
+
+    select().value = "";
+    select().dispatchEvent(new appWindow.Event("change"));
+
+    await vi.waitFor(() =>
+      expect(button("save").textContent).toBe("Add mailbox"),
+    );
+    expect(element<HTMLInputElement>("email-address").value).toBe("");
+    expect(managing()).toEqual([false, false]);
+    expect(callTool).toHaveBeenCalledTimes(1);
   });
 
   it("explains a view that never receives its tool result", () => {
@@ -151,16 +193,21 @@ describe("email account form MCP App", () => {
     for (const id of actions) expect(button(id).disabled).toBe(true);
   });
 
-  it("keeps the stalled explanation when Add mailbox is pressed", () => {
+  it("offers no mailbox picker until the data arrives", () => {
+    expect(picker().hidden).toBe(true);
+
     vi.advanceTimersByTime(8000);
 
-    button("new-account").click();
-
-    // A disabled button dispatches no click, so the explanation survives
-    // rather than being cleared by a blank mailbox form that would invite
-    // passwords it could never save.
+    expect(picker().hidden).toBe(true);
     expect(status()).toContain("never received its data");
-    expect(callTool).not.toHaveBeenCalled();
+  });
+
+  it("offers no mailbox picker without the form token", () => {
+    open({}, { accounts: [account] });
+
+    // Switching mailboxes needs the token, so there is nothing to offer.
+    expect(picker().hidden).toBe(true);
+    expect(status()).toContain("could not be verified");
   });
 
   it("explains Test and Remove pressed before any data arrived", () => {
@@ -193,5 +240,8 @@ describe("email account form MCP App", () => {
     await vi.waitFor(() => expect(status()).toContain("removed"));
     expect(button("delete").disabled).toBe(true);
     expect(button("test").disabled).toBe(true);
+    expect(managing()).toEqual([false, false]);
+    expect(picker().hidden).toBe(true);
+    expect(button("save").textContent).toBe("Add mailbox");
   });
 });
