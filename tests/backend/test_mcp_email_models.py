@@ -45,6 +45,17 @@ def test_server_settings_are_trimmed_and_reject_control_characters() -> None:
     _rejects(EmailProtocol, "valid server name", **_protocol(username="   "))
 
 
+def test_smtp_defaults_to_starttls_while_imap_keeps_implicit_tls() -> None:
+    account = EmailAccountSave(
+        display_name="Me",
+        email_address="me@example.org",
+        imap=_protocol(),
+        smtp=_protocol(host="smtp.example.org", port=587),
+    )
+    assert account.imap.security == "ssl"
+    assert account.smtp.security == "starttls"
+
+
 @pytest.mark.parametrize(
     ("override", "message"),
     [

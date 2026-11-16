@@ -84,6 +84,12 @@ class EmailProtocol(EmailArguments):
         return value
 
 
+class SmtpProtocol(EmailProtocol):
+    # Submission on port 587 upgrades with STARTTLS, so that is the default
+    # for outgoing mail; IMAP keeps implicit TLS.
+    security: Literal["ssl", "starttls"] = "starttls"
+
+
 class EmailAccountSave(EmailArguments):
     account_id: EmailIdentifier | None = None
     display_name: str = Field(min_length=1, max_length=100)
@@ -92,7 +98,7 @@ class EmailAccountSave(EmailArguments):
     is_default: bool = False
     enabled: bool = True
     imap: EmailProtocol
-    smtp: EmailProtocol
+    smtp: SmtpProtocol
     signature_text: str = Field(default="", max_length=2000)
     save_sent_copy: bool = True
 

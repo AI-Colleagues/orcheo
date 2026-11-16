@@ -112,6 +112,34 @@ describe("email account form MCP App", () => {
     expect(managing()).toEqual([false, false]);
   });
 
+  it("starts a new mailbox on SMTP port 587 with STARTTLS", async () => {
+    const value = (id: string) => element<HTMLInputElement>(id).value;
+    const smtp = () => [value("smtp-port"), value("smtp-security")];
+    // The static markup already shows the defaults before any data arrives.
+    expect(smtp()).toEqual(["587", "starttls"]);
+    callTool.mockResolvedValueOnce({
+      structuredContent: {
+        account: {
+          ...account,
+          smtp: { host: "smtp.example.com", port: 465, security: "ssl" },
+        },
+      },
+    });
+    open(undefined, { accounts: [account], account_id: account.account_id });
+
+    // A saved mailbox keeps the settings it was saved with.
+    await vi.waitFor(() => expect(smtp()).toEqual(["465", "ssl"]));
+
+    select().value = "";
+    select().dispatchEvent(new appWindow.Event("change"));
+
+    await vi.waitFor(() => expect(smtp()).toEqual(["587", "starttls"]));
+    expect([value("imap-port"), value("imap-security")]).toEqual([
+      "993",
+      "ssl",
+    ]);
+  });
+
   it("lists saved mailboxes with a way to add another", async () => {
     callTool.mockResolvedValueOnce({ structuredContent: { account } });
     open(undefined, { accounts: [account], account_id: account.account_id });

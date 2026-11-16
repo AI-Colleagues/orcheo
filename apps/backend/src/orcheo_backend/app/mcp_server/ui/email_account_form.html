@@ -49,8 +49,8 @@
         <label class="wide">Password<input id="imap-password" type="password" autocomplete="new-password" placeholder="Enter to replace the saved password" /></label>
         <div class="wide"><h2>SMTP (outgoing mail)</h2></div>
         <label>Server<input id="smtp-host" placeholder="smtp.example.com" /></label>
-        <label>Port<input id="smtp-port" type="number" min="1" max="65535" value="465" /></label>
-        <label>Security<select id="smtp-security"><option value="ssl">SSL/TLS</option><option value="starttls">STARTTLS</option></select></label>
+        <label>Port<input id="smtp-port" type="number" min="1" max="65535" value="587" /></label>
+        <label>Security<select id="smtp-security"><option value="ssl">SSL/TLS</option><option value="starttls" selected>STARTTLS</option></select></label>
         <label>Username<input id="smtp-username" autocomplete="username" /></label>
         <label class="wide">Password<input id="smtp-password" type="password" autocomplete="new-password" placeholder="Enter to replace the saved password" /></label>
         <label class="wide">Signature<textarea id="signature" maxlength="2000"></textarea></label>
@@ -109,8 +109,8 @@
         $("save-sent-copy").checked = account ? Boolean(account.save_sent_copy) : true;
         setValue("imap-host", imap.host); setValue("imap-port", imap.port ?? 993);
         setValue("imap-security", imap.security || "ssl"); setValue("imap-username", imap.username);
-        setValue("smtp-host", smtp.host); setValue("smtp-port", smtp.port ?? 465);
-        setValue("smtp-security", smtp.security || "ssl"); setValue("smtp-username", smtp.username);
+        setValue("smtp-host", smtp.host); setValue("smtp-port", smtp.port ?? 587);
+        setValue("smtp-security", smtp.security || "starttls"); setValue("smtp-username", smtp.username);
         setValue("signature", account?.signature_text);
         $("imap-password").value = ""; $("smtp-password").value = "";
         $("imap-password").placeholder = account ? "Leave blank to keep the saved password" : "Required";
