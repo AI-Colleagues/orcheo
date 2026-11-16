@@ -21,11 +21,21 @@ SUPPORTED_SCOPES: tuple[str, ...] = (
     *DEFAULT_USER_SCOPES,
     "workspaces:write",
     "admin:tokens:write",
+    "email:accounts:read",
     "email:read",
     "email:write",
 )
-# New mutating capabilities require an explicit request and user consent.
-DEFAULT_OAUTH_SCOPES: tuple[str, ...] = DEFAULT_USER_SCOPES
+# Offered to a client that registers without naming scopes. Only
+# ``email:accounts:read`` is added: it covers ``list_email_accounts`` alone,
+# which returns display names, addresses and connection health, never server
+# settings or passwords. Reading mail itself (``email:read``: message bodies,
+# threads, attachments, folders, contacts) and everything that mutates
+# (``email:write``, the mailbox settings form included) still require an
+# explicit request and user consent.
+DEFAULT_OAUTH_SCOPES: tuple[str, ...] = (
+    *DEFAULT_USER_SCOPES,
+    "email:accounts:read",
+)
 
 
 def _first_forwarded(value: str | None) -> str | None:
